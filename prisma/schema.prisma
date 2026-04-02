@@ -1,0 +1,98 @@
+// ============================================================================
+// PRISMA SCHEMA
+// ============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum EmailVerificationType {
+  SIGNUP
+  PASSWORD_RESET
+  FORGOT_PASSWORD
+}
+
+// ============================================================================
+// MODELS
+// ============================================================================
+
+model User {
+  id           String @id @default(uuid())
+  email        String @unique
+  passwordHash String @map("password_hash")
+
+  // Profile
+  firstName String? @map("first_name")
+  lastName  String? @map("last_name")
+  avatarUrl String? @map("avatar_url")
+
+  // Access & roles
+  role UserRole @default(USER)
+
+  // Auth & security
+  isEmailVerified Boolean   @default(false) @map("is_email_verified")
+  lastLoginAt     DateTime? @db.Timestamptz(6) @map("last_login_at")
+
+  // Soft delete + timestamps
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @db.Timestamptz(6) @map("deleted_at")
+  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  // Relations
+  refreshTokens           RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  userAgent String?  @map("user_agent")
+  ipAddress String?  @map("ip_address")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id        String                @id @default(uuid())
+  userId    String                @map("user_id")
+  tokenHash String                @unique @map("token_hash")
+  type      EmailVerificationType
+  expiresAt DateTime              @db.Timestamptz(6) @map("expires_at")
+  isUsed    Boolean               @default(false) @map("is_used")
+  createdAt DateTime              @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([type])
+  @@map("email_verification_tokens")
+}
+
