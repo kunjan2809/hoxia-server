@@ -29,14 +29,14 @@ const router = Router();
 
 /**
  * @route   POST /api/auth/register
- * @desc    Register with email/password and send verification link
+ * @desc    Register with email/password (PHASE1: no post-signup verification email)
  * @access  Public
  */
 router.post(ROUTES.AUTH.REGISTER, authRateLimiter, authController.register);
 
 /**
  * @route   POST /api/auth/login
- * @desc    Login with email/password (requires verified email)
+ * @desc    Login with email/password (PHASE1: no verified-email gate)
  * @access  Public
  */
 router.post(ROUTES.AUTH.LOGIN, authRateLimiter, authController.login);

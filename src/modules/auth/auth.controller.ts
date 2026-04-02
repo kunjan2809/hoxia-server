@@ -79,7 +79,7 @@ export class AuthController {
   };
 
   /**
-   * Register with email + password and send verification link
+   * Register with email + password (PHASE1: no verification email; account is usable immediately)
    * POST /api/auth/register
    */
   register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -95,7 +95,7 @@ export class AuthController {
   };
 
   /**
-   * Login with email + password
+   * Login with email + password (PHASE1: issues tokens without requiring prior email verification)
    * POST /api/auth/login
    */
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
