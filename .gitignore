@@ -2,7 +2,9 @@
 # NODE
 # ========================
 node_modules
+node_modules/
 dist
+dist/
 .DS_Store
 
 # ========================
@@ -12,6 +14,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
 
 # ========================
 # ENV (keep .env.example committed)
@@ -21,7 +24,14 @@ pnpm-debug.log*
 .env.*.local
 
 # ========================
+# TEMPORARY FOLDERS
+# ========================
+temp/*
+tmp/*
+temp
+tmp
+
+# ========================
 # PRISMA
 # ========================
-prisma/migrations
-
+/src/generated/prisma
