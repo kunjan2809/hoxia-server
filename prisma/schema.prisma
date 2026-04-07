@@ -26,8 +26,92 @@ enum EmailVerificationType {
   FORGOT_PASSWORD
 }
 
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  DRAFT
+  PAUSED
+}
+
+enum StrategicAngle {
+  PRIMARY
+  SUPPORTING
+  CONTRARIAN
+}
+
+enum Objective {
+  OPEN_CONVERSATION
+  SECURE_MEETING
+  SUPPORT_OPPORTUNITY
+  REENGAGE_STALLED
+  INTRODUCE_POV
+  NURTURE
+}
+
+enum OutputType {
+  OUTREACH_FRAMEWORK
+  SINGLE_TOUCHPOINT
+}
+
+enum Cadence {
+  STANDARD_PROSPECTING
+  LONG_GAME_NURTURE
+  QUICK_BREAKTHROUGH
+}
+
+enum ResearchRowStatus {
+  IDLE
+  LOADING
+  COMPLETED
+  ERROR
+}
+
+enum LlmProvider {
+  GOOGLE
+  ANTHROPIC
+  OPENAI
+}
+
+enum LlmOperationKind {
+  RESEARCH
+  DEEP_DIVE
+  STRATEGY
+  ASSET_GENERATION
+}
+
+enum LlmCallStatus {
+  SUCCESS
+  FAILURE
+  TIMEOUT
+  RATE_LIMITED
+  CANCELLED
+  PENDING
+}
+
+enum CompanyType {
+  INDIVIDUAL
+  BATCH
+}
+
+enum StrategyTone {
+  PROFESSIONAL
+  CASUAL
+  DIRECT
+  CONSULTATIVE
+  WARM
+  FORMAL
+}
+
+enum SenderPersona {
+  PEER
+  EXECUTIVE
+  VENDOR
+  PARTNER
+  INTERNAL_CHAMPION
+}
+
 // ============================================================================
-// MODELS
+// USER & AUTH
 // ============================================================================
 
 model User {
@@ -35,28 +119,36 @@ model User {
   email        String @unique
   passwordHash String @map("password_hash")
 
-  // Profile
   firstName String? @map("first_name")
   lastName  String? @map("last_name")
   avatarUrl String? @map("avatar_url")
 
-  // Access & roles
   role UserRole @default(USER)
 
-  // Auth & security
   isEmailVerified Boolean   @default(false) @map("is_email_verified")
-  lastLoginAt     DateTime? @db.Timestamptz(6) @map("last_login_at")
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(6)
 
-  // Soft delete + timestamps
+  metadata Json? @map("metadata")
+
   isDeleted Boolean   @default(false) @map("is_deleted")
-  deletedAt DateTime? @db.Timestamptz(6) @map("deleted_at")
-  createdAt DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
-  updatedAt DateTime  @updatedAt @db.Timestamptz(6) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  // Relations
   refreshTokens           RefreshToken[]
   emailVerificationTokens EmailVerificationToken[]
 
+  projects          Project[]
+  companyLists      CompanyList[]
+  companies         Company[]
+  companyResearches CompanyResearch[]
+  researchReports   ResearchReport[]
+  strategies        Strategy[]
+  strategySteps     StrategyStep[]
+  activationAssets  ActivationAsset[]
+  llmApiCalls       LlmApiCall[]
+
+  @@index([isDeleted])
   @@map("users")
 }
 
@@ -67,14 +159,16 @@ model RefreshToken {
   userAgent String?  @map("user_agent")
   ipAddress String?  @map("ip_address")
   isRevoked Boolean  @default(false) @map("is_revoked")
-  expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
-  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
 
-  // Relations
+  metadata Json? @map("metadata")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([token])
+  @@index([userId, isRevoked])
   @@map("refresh_tokens")
 }
 
@@ -83,16 +177,454 @@ model EmailVerificationToken {
   userId    String                @map("user_id")
   tokenHash String                @unique @map("token_hash")
   type      EmailVerificationType
-  expiresAt DateTime              @db.Timestamptz(6) @map("expires_at")
+  expiresAt DateTime              @map("expires_at") @db.Timestamptz(6)
   isUsed    Boolean               @default(false) @map("is_used")
-  createdAt DateTime              @default(now()) @db.Timestamptz(6) @map("created_at")
 
-  // Relations
+  metadata Json? @map("metadata")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([tokenHash])
   @@index([type])
   @@map("email_verification_tokens")
 }
 
+// ============================================================================
+// PROJECT
+// ============================================================================
+
+model Project {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  name   String
+
+  status ProjectStatus @default(DRAFT) @map("status")
+
+  defaultHeaders  Json  @map("default_headers")
+  campaignContext Json? @map("campaign_context")
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyLists      CompanyList[]
+  companies         Company[]
+  companyResearches CompanyResearch[]
+  researchReports   ResearchReport[]
+  strategies        Strategy[]
+  activationAssets  ActivationAsset[]
+  llmApiCalls       LlmApiCall[]
+
+  @@index([userId])
+  @@index([userId, isDeleted])
+  @@index([status])
+  @@map("projects")
+}
+
+// ============================================================================
+// COMPANY LIST
+// ============================================================================
+
+model CompanyList {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  createdBy String @map("created_by")
+
+  name     String
+  rowCount Int?   @map("row_count")
+
+  headers         Json  @map("headers")
+  campaignContext Json? @map("campaign_context")
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  companies Company[]
+
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([createdBy])
+  @@map("company_lists")
+}
+
+// ============================================================================
+// COMPANY
+// ============================================================================
+
+model Company {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  createdBy String @map("created_by")
+
+  type CompanyType @map("type")
+
+  companyListId String? @map("company_list_id")
+
+  companyName String? @map("company_name")
+  websiteUrl  String? @map("website_url")
+  linkedinUrl String? @map("linkedin_url")
+
+  payload Json @map("payload")
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  companyList     CompanyList?     @relation(fields: [companyListId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  companyResearch CompanyResearch?
+
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([companyListId])
+  @@index([companyName])
+  @@index([createdBy])
+  @@map("company_list_rows")
+}
+
+// ============================================================================
+// COMPANY RESEARCH
+// ============================================================================
+
+model CompanyResearch {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  companyId String @unique @map("company_id")
+  createdBy String @map("created_by")
+
+  originalData   Json              @map("original_data")
+  researchStatus ResearchRowStatus @default(IDLE) @map("research_status")
+  researchData   Json?             @map("research_data")
+  sources        Json?             @map("sources")
+  activeStrategy StrategicAngle?   @map("active_strategy")
+  researchError  String?           @map("research_error") @db.Text
+
+  sortOrder Int? @map("sort_order")
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  researchReports  ResearchReport[]
+  activationAssets ActivationAsset[]
+  strategies       Strategy[]
+  llmApiCalls      LlmApiCall[]
+
+  @@unique([projectId, sortOrder])
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([projectId, researchStatus])
+  @@index([createdBy])
+  @@map("company_research_rows")
+}
+
+// ============================================================================
+// RESEARCH REPORT
+// ============================================================================
+
+model ResearchReport {
+  id                String  @id @default(uuid())
+  projectId         String  @map("project_id")
+  createdBy         String  @map("created_by")
+  companyId         String? @map("company_id")
+  companyResearchId String? @map("company_research_id")
+
+  formalCompanyName String? @map("formal_company_name")
+  industry          String?
+  headquarters      String?
+
+  strategicSummary  String? @map("strategic_summary")
+  strategicVelocity String? @map("strategic_velocity")
+
+  growthSignals       String?         @map("growth_signals")
+  hiringSignals       String?         @map("hiring_signals")
+  securityRiskSignals String?         @map("security_risk_signals")
+  leadershipSignals   String?         @map("leadership_signals")
+  keyHeadwinds        String?         @map("key_headwinds")
+  interpretation      String?         @map("interpretation")
+  researchSources     Json?           @map("research_sources")
+  activeStrategy      StrategicAngle? @map("active_strategy")
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project              Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user                 User                 @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  companyResearch      CompanyResearch?     @relation(fields: [companyResearchId], references: [id], onDelete: SetNull)
+  foundationStrategies FoundationStrategy[]
+  strategies           Strategy[]
+  activationAssets     ActivationAsset[]
+  llmApiCalls          LlmApiCall[]
+
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([companyId])
+  @@index([companyResearchId])
+  @@index([createdBy])
+  @@map("deep_dive_reports")
+}
+
+// ============================================================================
+// FOUNDATION STRATEGY
+// ============================================================================
+
+model FoundationStrategy {
+  id       String         @id @default(uuid())
+  reportId String         @map("report_id")
+  angle    StrategicAngle
+
+  strategicTrigger   String?   @map("strategic_trigger")
+  whyThisMatters     String?   @map("why_this_matters")
+  assetsCreated      Int       @map("assets_created")
+  stakeholder        String?
+  targetRole         String?   @map("target_role")
+  strategicPosture   String?   @map("strategic_posture")
+  messagingDirection String?   @map("messaging_direction")
+  confidence         String?
+  confidenceReason   String?   @map("confidence_reason")
+  lastUpdated        DateTime? @map("last_updated") @db.Timestamptz(6)
+
+  metadata Json? @map("metadata")
+
+  report ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, angle])
+  @@index([reportId])
+  @@map("foundation_strategies")
+}
+
+// ============================================================================
+// STRATEGY
+// ============================================================================
+
+model Strategy {
+  id                String  @id @default(uuid())
+  projectId         String  @map("project_id")
+  createdBy         String  @map("created_by")
+  companyId         String? @map("company_id")
+  companyResearchId String? @map("company_research_id")
+  researchReportId  String? @map("research_report_id")
+
+  name       String
+  angle      StrategicAngle
+  objective  Objective
+  outputType OutputType     @map("output_type")
+
+  cadence       Cadence?      @map("cadence")
+  tone          StrategyTone  @map("tone")
+  senderPersona SenderPersona @map("sender_persona")
+  pacingNotes   String?       @map("pacing_notes") @db.Text
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  companyResearch CompanyResearch? @relation(fields: [companyResearchId], references: [id], onDelete: SetNull)
+  researchReport  ResearchReport?  @relation(fields: [researchReportId], references: [id], onDelete: SetNull)
+  steps           StrategyStep[]
+  llmApiCalls     LlmApiCall[]
+
+  @@unique([projectId, companyId, angle, objective, outputType])
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([companyResearchId])
+  @@index([researchReportId])
+  @@index([companyId])
+  @@index([createdBy])
+  @@map("saved_strategies")
+}
+
+// ============================================================================
+// STRATEGY STEP
+// ============================================================================
+
+model StrategyStep {
+  id String @id @default(uuid())
+
+  strategyId        String  @map("strategy_id")
+  createdBy         String  @map("created_by")
+  companyId         String? @map("company_id")
+  companyResearchId String? @map("company_research_id")
+  researchReportId  String? @map("research_report_id")
+  activationAssetId String? @map("activation_asset_id")
+
+  role          String         @map("role")
+  day           Int            @map("day")
+  stepOrder     Int            @map("step_order")
+  assetName     String         @map("asset_name")
+  channel       String         @map("channel")
+  strategyAngle StrategicAngle @map("strategy_angle")
+  confidence    String         @map("confidence")
+  preview       String         @map("preview") @db.Text
+  subjectLine   String?        @map("subject_line")
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  strategy        Strategy         @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  activationAsset ActivationAsset? @relation(fields: [activationAssetId], references: [id], onDelete: SetNull)
+
+  @@index([strategyId])
+  @@index([strategyId, stepOrder])
+  @@index([activationAssetId])
+  @@index([strategyId, isDeleted])
+  @@index([createdBy])
+  @@map("campaign_steps")
+}
+
+// ============================================================================
+// ACTIVATION ASSET
+// ============================================================================
+
+model ActivationAsset {
+  id                String  @id @default(uuid())
+  projectId         String  @map("project_id")
+  createdBy         String  @map("created_by")
+  companyResearchId String? @map("company_research_id")
+  researchReportId  String? @map("research_report_id")
+  companyId         String? @map("company_id")
+
+  source           String         @map("source")
+  angleUsed        StrategicAngle @map("angle_used")
+  insightClaim     String         @map("insight_claim") @db.Text
+  confidence       String         @map("confidence")
+  objective        Objective      @map("objective")
+  outputType       OutputType     @map("output_type")
+  outputPreview    String         @map("output_preview") @db.Text
+  subjectLine      String?        @map("subject_line")
+  strategicAngle   String?        @map("strategic_angle") @db.Text
+  whyItFits        String?        @map("why_it_fits") @db.Text
+  approachGuidance String?        @map("approach_guidance") @db.Text
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  companyResearch CompanyResearch? @relation(fields: [companyResearchId], references: [id], onDelete: SetNull)
+  researchReport  ResearchReport?  @relation(fields: [researchReportId], references: [id], onDelete: SetNull)
+  strategySteps   StrategyStep[]
+  llmApiCalls     LlmApiCall[]
+
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([projectId, outputType])
+  @@index([companyResearchId])
+  @@index([researchReportId])
+  @@index([companyId])
+  @@index([createdBy])
+  @@map("activation_assets")
+}
+
+// ============================================================================
+// LLM API CALL
+// ============================================================================
+
+model LlmApiCall {
+  id        String  @id @default(uuid())
+  userId    String  @map("user_id")
+  projectId String? @map("project_id")
+
+  companyResearchId String? @map("company_research_id")
+  researchReportId  String? @map("research_report_id")
+  activationAssetId String? @map("activation_asset_id")
+  strategyId        String? @map("strategy_id")
+  companyId         String? @map("company_id")
+
+  provider      LlmProvider      @map("provider")
+  modelId       String           @map("model_id")
+  operationKind LlmOperationKind @map("operation_kind")
+  status        LlmCallStatus    @map("status")
+
+  promptTokenCount   Int? @map("prompt_token_count")
+  outputTokenCount   Int? @map("output_token_count")
+  totalTokenCount    Int? @map("total_token_count")
+  thoughtsTokenCount Int? @map("thoughts_token_count")
+
+  creditConversionRate       Float? @map("credit_conversion_rate")
+  inputCredits               Float? @map("input_credits")
+  outputCredits              Float? @map("output_credits")
+  additionalCredits          Float? @map("additional_credits")
+  inputCreditMarginRate      Float? @map("input_credit_margin_rate")
+  outputCreditMarginRate     Float? @map("output_credit_margin_rate")
+  additionalCreditMarginRate Float? @map("additional_credit_margin_rate")
+  totalCredits               Float? @map("total_credits")
+
+  latencyMs Int? @map("latency_ms")
+
+  groundingSearchUsed Boolean @default(false) @map("grounding_search_used")
+  clientRequestId     String? @map("client_request_id")
+  correlationId       String? @map("correlation_id")
+  retryAttempt        Int     @default(0) @map("retry_attempt")
+  providerRequestId   String? @map("provider_request_id")
+  httpStatusCode      String? @map("http_status_code")
+  errorCode           String? @map("error_code")
+  errorMessage        String? @map("error_message") @db.Text
+
+  metadata Json? @map("metadata")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project         Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  companyResearch CompanyResearch? @relation(fields: [companyResearchId], references: [id], onDelete: SetNull)
+  researchReport  ResearchReport?  @relation(fields: [researchReportId], references: [id], onDelete: SetNull)
+  activationAsset ActivationAsset? @relation(fields: [activationAssetId], references: [id], onDelete: SetNull)
+  strategy        Strategy?        @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([userId, isDeleted])
+  @@index([projectId])
+  @@index([projectId, isDeleted])
+  @@index([projectId, createdAt])
+  @@index([operationKind])
+  @@index([provider, modelId])
+  @@index([correlationId])
+  @@index([clientRequestId])
+  @@index([status])
+  @@map("llm_api_calls")
+}
