@@ -72,6 +72,18 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     req.user = user;
     next();
   } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      sendUnauthorized(res, 'Token expired');
+      return;
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      sendUnauthorized(res, 'Invalid or expired token');
+      return;
+    }
+    if (error instanceof jwt.NotBeforeError) {
+      sendUnauthorized(res, 'Token not active yet');
+      return;
+    }
     next(error);
   }
 };
