@@ -11,6 +11,10 @@ import express from 'express';
 
 // Routes
 import authRoutes from './modules/auth/auth.routes.js';
+import companyRoutes from './modules/companies/company.routes.js';
+import projectRoutes from './modules/projects/project.routes.js';
+import researchRoutes from './modules/research/research.routes.js';
+import strategyRoutes from './modules/strategies/strategy.routes.js';
 
 // Middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -80,6 +84,10 @@ app.use((req, res, next) => {
 // ============================================================================
 
 app.use(ROUTES.AUTH.BASE, authRoutes);
+app.use(ROUTES.PROJECTS.BASE, projectRoutes);
+app.use(ROUTES.PROJECTS.SCOPED_MOUNT, companyRoutes);
+app.use(ROUTES.PROJECTS.SCOPED_MOUNT, researchRoutes);
+app.use(ROUTES.PROJECTS.SCOPED_MOUNT, strategyRoutes);
 
 // ============================================================================
 // HEALTH
