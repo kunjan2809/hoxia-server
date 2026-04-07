@@ -19,6 +19,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@google/genai": "^1.48.0",
     "@prisma/adapter-pg": "7.1.0",
     "@prisma/client": "7.1.0",
     "bcrypt": "^6.0.0",
