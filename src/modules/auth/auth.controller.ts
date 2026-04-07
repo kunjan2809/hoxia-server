@@ -9,13 +9,13 @@ import type { NextFunction, Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 
 // DTO
-import { LoginDto, RefreshTokenDto, RegisterDto, RequestMagicLinkDto, ResendVerificationDto, VerifyMagicLinkQueryDto } from './dto/auth.dto.js';
+import { LoginDto, RefreshTokenDto, RegisterDto, RequestMagicLinkDto, ResendVerificationDto, UpdateProfileDto, VerifyMagicLinkQueryDto } from './dto/auth.dto.js';
 import type { VerifyMagicLinkQueryDtoType } from './dto/auth.dto.js';
 
 // Utils
 import { clearAuthCookies, COOKIE_NAMES, setAuthCookies } from '../../utils/helpers/cookie.js';
 import { createLogger } from '../../utils/helpers/logger.js';
-import { sendBadRequest, sendSuccess } from '../../utils/helpers/response.js';
+import { sendBadRequest, sendNotFound, sendSuccess } from '../../utils/helpers/response.js';
 import { validateRequest } from '../../utils/helpers/validate.js';
 
 // Types
@@ -192,6 +192,8 @@ export class AuthController {
   /**
    * Get current authenticated user
    * GET /api/auth/me
+   *
+   * Returns the full safe profile (including firstName, lastName, avatarUrl) for the JWT subject.
    */
   me = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -200,7 +202,38 @@ export class AuthController {
         return;
       }
 
-      sendSuccess(res, 'User retrieved successfully', { user: req.user });
+      const profile = await this.authService.getProfile(req.user.id);
+      if (!profile) {
+        sendNotFound(res, 'User not found');
+        return;
+      }
+
+      sendSuccess(res, 'User retrieved successfully', { user: profile });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Update the authenticated user's display name (first and last name only).
+   * PATCH /api/auth/me
+   *
+   * Email, password, and role cannot be changed through this endpoint; use dedicated auth flows for those.
+   */
+  patchMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        sendBadRequest(res, 'Not authenticated');
+        return;
+      }
+
+      const dtoResult = await validateRequest(UpdateProfileDto, req, res, 'body');
+      if (!dtoResult.success) {
+        return;
+      }
+
+      const profile = await this.authService.updateProfile(req.user.id, dtoResult.data);
+      sendSuccess(res, 'Profile updated successfully', { user: profile });
     } catch (error) {
       next(error);
     }

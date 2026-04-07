@@ -21,6 +21,7 @@ import { createLogger } from '../../utils/helpers/logger.js';
 
 // Types
 import type { EmailVerificationType, UserRole } from '../../generated/prisma/enums.js';
+import type { UpdateProfileDtoType } from './dto/auth.dto.js';
 import type { AuthResponse, SafeUser, SessionInfo } from './types/auth.types.js';
 
 // ============================================================================
@@ -485,6 +486,61 @@ export class AuthService {
       where: { userId },
       data: { isRevoked: true },
     });
+  }
+
+  /**
+   * Loads the full safe profile for the authenticated user (GET /api/auth/me).
+   * Excludes password and other sensitive fields.
+   */
+  async getProfile(userId: string): Promise<SafeUser | null> {
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    return toSafeUser(user);
+  }
+
+  /**
+   * Updates display name fields only (first and last name). Email and credentials are unchanged.
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDtoType): Promise<SafeUser> {
+    const updated = await prisma.user.update({
+      where: { id: userId, isDeleted: false },
+      data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return toSafeUser(updated);
   }
 }
 
