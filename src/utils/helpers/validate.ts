@@ -41,14 +41,19 @@ export const validateRequest = async <T extends z.ZodSchema>(
   schema: T,
   req: Request,
   res: Response,
-  target: RequestTarget
+  target: RequestTarget,
+  /** When set, parse this value instead of reading from req (and do not mutate req). Use for Express 5–safe query normalization. */
+  sourceOverride?: unknown
 ): Promise<ValidationResult<z.infer<T>>> => {
   try {
-    const validated = await schema.parseAsync(getTargetValue(req, target));
+    const raw = sourceOverride !== undefined ? sourceOverride : getTargetValue(req, target);
+    const validated = await schema.parseAsync(raw);
 
-    if (target === 'body') req.body = validated;
-    if (target === 'query') req.query = validated as unknown as Request['query'];
-    if (target === 'params') req.params = validated as unknown as Request['params'];
+    // Express 5: req.query and req.params are getters — assigning throws "Cannot set property query".
+    // Callers must use the returned `data` from this helper.
+    if (target === 'body' && sourceOverride === undefined) {
+      req.body = validated as Request['body'];
+    }
 
     return { success: true, data: validated };
   } catch (error) {
