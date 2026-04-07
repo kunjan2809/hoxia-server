@@ -141,11 +141,9 @@ export class AuthController {
   verifyMagicLink = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const queryToken = req.query['token'];
-      const query: VerifyMagicLinkQueryDtoType = { token: typeof queryToken === 'string' ? queryToken : '' };
+      const normalizedQuery: VerifyMagicLinkQueryDtoType = { token: typeof queryToken === 'string' ? queryToken : '' };
 
-      req.query = query as unknown as Request['query'];
-
-      const dtoResult = await validateRequest(VerifyMagicLinkQueryDto, req, res, 'query');
+      const dtoResult = await validateRequest(VerifyMagicLinkQueryDto, req, res, 'query', normalizedQuery);
       if (!dtoResult.success) {
         return;
       }
