@@ -1,12 +1,11 @@
 // ============================================================================
-// GEMINI CONFIG (static — no environment variables)
+// GEMINI CONFIG
 // ============================================================================
 
 /**
- * Paste your Gemini API key here for server-side calls.
- * This file is the single source of truth for the key (not process.env).
+ * Gemini API key from `GEMINI_API_KEY` in the server `.env` (loaded at process startup).
  */
-export const GEMINI_API_KEY = 'AIzaSyCusdpmyofwGHSyoduERv5_BopJvjD13zc';
+export const GEMINI_API_KEY = process.env['GEMINI_API_KEY'] ?? '';
 
 export const GEMINI_MODEL_NAME = 'gemini-3.1-flash-lite-preview' as const;
 
