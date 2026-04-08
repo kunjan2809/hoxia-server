@@ -2,11 +2,13 @@
 // IMPORTS
 // ============================================================================
 
+// Environment (must run before other project modules read process.env)
+import 'dotenv/config';
+
 // Packages
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import type { CorsOptions } from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
 
 // Routes
@@ -26,12 +28,6 @@ import { ROUTES } from './utils/constants/routes.js';
 // Utils
 import { logger } from './utils/helpers/logger.js';
 import { sendNotFound, sendSuccess } from './utils/helpers/response.js';
-
-// ============================================================================
-// ENV
-// ============================================================================
-
-dotenv.config();
 
 // ============================================================================
 // APP

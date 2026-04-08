@@ -109,7 +109,7 @@ export class GeminiClient {
     if (!GeminiClient.instance) {
       if (!GEMINI_API_KEY.trim()) {
         throw new Error(
-          'GEMINI_API_KEY is not configured. Set it in server/src/modules/gemini/config/gemini.config.ts',
+          'GEMINI_API_KEY is not configured. Set GEMINI_API_KEY in the server .env file.',
         );
       }
       GeminiClient.instance = new GeminiClient();
