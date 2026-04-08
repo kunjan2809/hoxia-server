@@ -207,6 +207,7 @@ export class AuthService {
         lastName: true,
         avatarUrl: true,
         isEmailVerified: true,
+        isActive: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -216,6 +217,10 @@ export class AuthService {
 
     if (!user) {
       throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
+    }
+
+    if (!user.isActive) {
+      throw Object.assign(new Error('Account is deactivated'), { statusCode: 403 });
     }
 
     const passwordOk = await bcrypt.compare(dto.password, user.passwordHash);
@@ -450,12 +455,17 @@ export class AuthService {
             createdAt: true,
             updatedAt: true,
             isDeleted: true,
+            isActive: true,
           },
         },
       },
     });
 
     if (!tokenRow || tokenRow.user.isDeleted) {
+      throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
+    }
+
+    if (!tokenRow.user.isActive) {
       throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
     }
 
