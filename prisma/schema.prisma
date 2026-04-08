@@ -125,6 +125,8 @@ model User {
 
   role UserRole @default(USER)
 
+  isActive Boolean @default(true) @map("is_active")
+
   isEmailVerified Boolean   @default(false) @map("is_email_verified")
   lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(6)
 
@@ -149,6 +151,7 @@ model User {
   llmApiCalls       LlmApiCall[]
 
   @@index([isDeleted])
+  @@index([isActive])
   @@map("users")
 }
 

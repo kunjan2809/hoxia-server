@@ -6,7 +6,7 @@
  * Paste your Gemini API key here for server-side calls.
  * This file is the single source of truth for the key (not process.env).
  */
-export const GEMINI_API_KEY = 'AIzaSyAQZqubfX4hjOTMDsFr7vnVL-krnDdtotE';
+export const GEMINI_API_KEY = 'AIzaSyCusdpmyofwGHSyoduERv5_BopJvjD13zc';
 
 export const GEMINI_MODEL_NAME = 'gemini-3.1-flash-lite-preview' as const;
 

@@ -18,6 +18,14 @@ export const ROUTES = {
       VERIFY: '/magic-link/verify',
     },
   },
+  ADMIN: {
+    BASE: '/api/admin',
+    OVERVIEW: '/overview',
+    USERS: {
+      LIST: '/users',
+      DETAIL: '/users/:userId',
+    },
+  },
   PROJECTS: {
     BASE: '/api/projects',
     LIST: '/',

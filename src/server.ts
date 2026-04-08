@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 
 // Routes
+import adminRoutes from './modules/admin/admin.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import companyRoutes from './modules/companies/company.routes.js';
 import projectRoutes from './modules/projects/project.routes.js';
@@ -84,6 +85,7 @@ app.use((req, res, next) => {
 // ============================================================================
 
 app.use(ROUTES.AUTH.BASE, authRoutes);
+app.use(ROUTES.ADMIN.BASE, adminRoutes);
 app.use(ROUTES.PROJECTS.BASE, projectRoutes);
 app.use(ROUTES.PROJECTS.SCOPED_MOUNT, companyRoutes);
 app.use(ROUTES.PROJECTS.SCOPED_MOUNT, researchRoutes);
