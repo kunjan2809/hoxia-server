@@ -170,41 +170,172 @@ export type ActivationAssetListQueryDtoType = z.infer<typeof ActivationAssetList
 // BODY
 // ============================================================================
 
-export const CreateStrategyDto = z.object({
-  name: z
-    .string()
-    .min(1)
-    .max(255)
-    .transform((v) => v.trim()),
-  angle: z.nativeEnum(StrategicAngle),
-  objective: z.nativeEnum(Objective),
-  outputType: z.nativeEnum(OutputType),
-  cadence: z.nativeEnum(Cadence).optional().nullable(),
-  tone: z.nativeEnum(StrategyTone),
-  senderPersona: z.nativeEnum(SenderPersona),
-  pacingNotes: z
-    .string()
-    .max(50_000)
-    .optional()
-    .nullable(),
-  companyId: z
-    .string()
-    .uuid()
-    .optional()
-    .nullable(),
-  companyResearchId: z
-    .string()
-    .uuid()
-    .optional()
-    .nullable(),
-  researchReportId: z
-    .string()
-    .uuid()
-    .optional()
-    .nullable(),
-  metadata: jsonValueSchema.optional().nullable(),
-  upsert: z.boolean().optional(),
+const LlmGenerationUserContextDto = z.object({
+  campaignGoal: z.string(),
+  proposition: z.string(),
+  audience: z.string(),
+  language: z.string().optional(),
+  influenceFocus: z.string().optional(),
+  importantConsiderations: z.string().optional(),
+  toneOfVoiceContent: z.string().optional(),
 });
+
+const LlmGenerationDto = z.object({
+  mode: z.enum(['MULTI_TOUCH', 'SINGLE_TOUCH', 'LIBRARY_MISSING_TOUCHPOINTS']),
+  userContext: LlmGenerationUserContextDto,
+  labels: z.object({
+    objective: z.string(),
+    tone: z.string(),
+    persona: z.string(),
+    cadence: z.string().optional(),
+    singleOutputType: z.string().optional(),
+  }),
+  library: z
+    .object({
+      missingTypes: z.array(z.string().min(1)).default([]),
+      stepBlueprints: z.array(
+        z.object({
+          stepOrder: z.coerce.number().int().min(0),
+          day: z.coerce.number().int().min(1),
+          role: z.string().min(1).max(200),
+          missingType: z.string().optional(),
+          existing: z
+            .object({
+              activationAssetId: z.string().uuid(),
+              assetName: z.string().min(1).max(500),
+              channel: z.string().min(1).max(200),
+              confidence: z.string().min(1).max(100),
+              preview: z.string().min(1).max(100_000),
+              subjectLine: z.string().max(500).optional().nullable(),
+            })
+            .optional(),
+        })
+      ),
+    })
+    .optional(),
+});
+
+export const CreateStrategyDto = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .max(255)
+      .transform((v) => v.trim()),
+    angle: z.nativeEnum(StrategicAngle),
+    objective: z.nativeEnum(Objective).optional(),
+    outputType: z.nativeEnum(OutputType).optional(),
+    cadence: z.nativeEnum(Cadence).optional().nullable(),
+    tone: z.nativeEnum(StrategyTone).optional(),
+    senderPersona: z.nativeEnum(SenderPersona).optional(),
+    pacingNotes: z
+      .string()
+      .max(50_000)
+      .optional()
+      .nullable(),
+    companyId: z
+      .string()
+      .uuid()
+      .optional()
+      .nullable(),
+    companyResearchId: z
+      .string()
+      .uuid()
+      .optional()
+      .nullable(),
+    researchReportId: z
+      .string()
+      .uuid()
+      .optional()
+      .nullable(),
+    metadata: jsonValueSchema.optional().nullable(),
+    upsert: z.boolean().optional(),
+    llmGeneration: LlmGenerationDto.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.llmGeneration) {
+      if (
+        data.companyId === undefined ||
+        data.companyId === null ||
+        data.companyResearchId === undefined ||
+        data.companyResearchId === null ||
+        data.researchReportId === undefined ||
+        data.researchReportId === null
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'companyId, companyResearchId, and researchReportId are required when llmGeneration is set',
+          path: ['companyId'],
+        });
+      }
+      if (data.llmGeneration.mode === 'MULTI_TOUCH') {
+        const c = data.llmGeneration.labels.cadence?.trim();
+        if (c === undefined || c.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Cadence is required for multi-touch generation',
+            path: ['llmGeneration', 'labels', 'cadence'],
+          });
+        }
+      }
+      if (data.llmGeneration.mode === 'SINGLE_TOUCH') {
+        const t = data.llmGeneration.labels.singleOutputType?.trim();
+        if (t === undefined || t.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'singleOutputType is required for single-touch generation',
+            path: ['llmGeneration', 'labels', 'singleOutputType'],
+          });
+        }
+      }
+      if (data.llmGeneration.mode === 'LIBRARY_MISSING_TOUCHPOINTS') {
+        const c = data.llmGeneration.labels.cadence?.trim();
+        if (c === undefined || c.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Cadence is required for library missing touchpoints generation',
+            path: ['llmGeneration', 'labels', 'cadence'],
+          });
+        }
+        if (data.llmGeneration.library === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'library payload is required for library missing touchpoints generation',
+            path: ['llmGeneration', 'library'],
+          });
+        }
+      }
+    } else {
+      if (data.objective === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'objective is required when llmGeneration is omitted',
+          path: ['objective'],
+        });
+      }
+      if (data.outputType === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'outputType is required when llmGeneration is omitted',
+          path: ['outputType'],
+        });
+      }
+      if (data.tone === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'tone is required when llmGeneration is omitted',
+          path: ['tone'],
+        });
+      }
+      if (data.senderPersona === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'senderPersona is required when llmGeneration is omitted',
+          path: ['senderPersona'],
+        });
+      }
+    }
+  });
 
 export type CreateStrategyDtoType = z.infer<typeof CreateStrategyDto>;
 
