@@ -18,6 +18,7 @@ import {
   UpdateCompanyDto,
   UpdateCompanyListDto,
 } from './dto/company.dto.js';
+import { SaveCampaignContextFormDto } from './dto/saveCampaignContext.dto.js';
 
 // Service
 import { CompanyService } from './company.service.js';
@@ -95,6 +96,77 @@ export class CompanyController {
         bodyResult.data
       );
       sendCreated(res, 'Company list created successfully', result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Multipart: optional file field `toneOfVoice` (PDF, Word, text). Text fields match SaveCampaignContextFormDto.
+   * Creates a company list with canonical campaignContext JSON and stores the file under LOCAL_UPLOAD_ROOT.
+   */
+  saveCampaignContext = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        sendUnauthorized(res);
+        return;
+      }
+
+      const paramsResult = await validateRequest(ProjectScopedParamsDto, req, res, 'params');
+      if (!paramsResult.success) {
+        return;
+      }
+
+      const bodyResult = await validateRequest(SaveCampaignContextFormDto, req, res, 'body');
+      if (!bodyResult.success) {
+        return;
+      }
+
+      const file = req.file;
+      const result = await this.companyService.createCompanyListSaveCampaignContext(
+        req.user.id,
+        paramsResult.data.projectId,
+        bodyResult.data,
+        file
+      );
+      sendCreated(res, 'Campaign context saved', result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  downloadToneOfVoice = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        sendUnauthorized(res);
+        return;
+      }
+
+      const paramsResult = await validateRequest(CompanyListIdParamDto, req, res, 'params');
+      if (!paramsResult.success) {
+        return;
+      }
+
+      const resolved = await this.companyService.resolveToneOfVoiceDownload(
+        req.user.id,
+        paramsResult.data.projectId,
+        paramsResult.data.companyListId
+      );
+      if (!resolved) {
+        sendNotFound(res, 'Tone of voice file not found');
+        return;
+      }
+
+      res.setHeader('Content-Type', resolved.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${resolved.downloadName.replace(/"/g, '')}"`);
+
+      resolved.stream.on('error', () => {
+        if (!res.headersSent) {
+          sendNotFound(res, 'File no longer available');
+        }
+      });
+
+      resolved.stream.pipe(res);
     } catch (error) {
       next(error);
     }
