@@ -22,8 +22,21 @@ export const ROUTES = {
     BASE: '/api/admin',
     OVERVIEW: '/overview',
     USERS: {
+      OPTIONS: '/users/options',
       LIST: '/users',
       DETAIL: '/users/:userId',
+    },
+    PROJECTS: {
+      OPTIONS: '/projects/options',
+      LIST: '/projects',
+      COMPANIES: '/projects/:projectId/companies',
+      COMPANY_RESEARCH: '/projects/:projectId/company-research',
+      NESTED_RESEARCH_REPORTS: '/projects/:projectId/research-reports',
+      DETAIL: '/projects/:projectId',
+    },
+    RESEARCH_REPORTS: {
+      LIST: '/research-reports',
+      DETAIL: '/research-reports/:reportId',
     },
   },
   PROJECTS: {
@@ -34,6 +47,8 @@ export const ROUTES = {
     SCOPED_MOUNT: '/api/projects/:projectId',
     SCOPE: {
       COMPANY_LISTS: '/company-lists',
+      COMPANY_LIST_SAVE_CAMPAIGN_CONTEXT: '/company-lists/save-campaign-context',
+      COMPANY_LIST_TONE_DOWNLOAD: '/company-lists/:companyListId/tone-of-voice/download',
       COMPANY_LIST_DETAIL: '/company-lists/:companyListId',
       COMPANIES_BULK: '/company-lists/:companyListId/companies/bulk',
       COMPANIES: '/companies',
