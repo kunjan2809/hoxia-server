@@ -204,12 +204,7 @@ export class ResearchController {
         paramsResult.data.projectId,
         paramsResult.data.companyResearchId
       );
-      sendSuccess(
-        res,
-        result.message,
-        { companyResearchId: result.companyResearchId },
-        202
-      );
+      sendSuccess(res, 'Research run finished', result);
     } catch (error) {
       next(error);
     }

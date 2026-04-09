@@ -50,7 +50,8 @@ router.post(
 
 /**
  * @route   POST /api/projects/:projectId/company-research/:companyResearchId/run
- * @desc    Starts an async Gemini research job (returns 202). Poll GET company-research/:id until COMPLETED or ERROR.
+ * @desc    Runs the Gemini research job to completion and returns the final company research row (HTTP 200).
+ *          Use a long client timeout; polling GET company-research is optional for recovery only.
  * @access  Protected
  */
 router.post(
