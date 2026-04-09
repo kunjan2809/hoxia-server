@@ -2,16 +2,29 @@
 // IMPORTS
 // ============================================================================
 
+// Node
+import { createReadStream } from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 // Config
 import { prisma } from '../../config/prisma.js';
 
 // Prisma
 import { Prisma } from '../../generated/prisma/client.js';
+import { ProjectStatus } from '../../generated/prisma/enums.js';
 
 // Utils
+import {
+  buildToneOfVoiceRelativePath,
+  LOCAL_UPLOAD_ROOT,
+  resolveToneOfVoiceAbsolutePath,
+  TONE_OF_VOICE_SEGMENT,
+} from '../../utils/constants/localUploads.js';
 import { assertProjectAccess } from '../../utils/helpers/projectAccess.js';
 import { createLogger } from '../../utils/helpers/logger.js';
 import { toNullablePrismaJson, toRequiredPrismaJson } from '../../utils/prisma/jsonInputs.js';
+import type { JsonValue } from '../../utils/validation/jsonValue.schema.js';
 
 // DTO types
 import type {
@@ -23,6 +36,7 @@ import type {
   UpdateCompanyDtoType,
   UpdateCompanyListDtoType,
 } from './dto/company.dto.js';
+import type { SaveCampaignContextFormDtoType } from './dto/saveCampaignContext.dto.js';
 
 // Types
 import type {
@@ -33,7 +47,19 @@ import type {
   CompanyResponse,
   PaginatedCompanies,
   PaginatedCompanyLists,
+  SaveCampaignContextResult,
 } from './types/company.types.js';
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+interface UploadedToneFile {
+  path: string;
+  filename: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
 
 // ============================================================================
 // CONSTANTS
@@ -254,6 +280,178 @@ export class CompanyService {
 
     logger.info(`createCompanyList projectId=${projectId} listId=${created.id}`);
     return this.mapCompanyListResponse(created);
+  }
+
+  private buildCampaignContextJson(
+    dto: SaveCampaignContextFormDtoType,
+    toneOfVoiceAsset: JsonValue | null,
+    companyListId: string
+  ): JsonValue {
+    const plain = (dto.toneOfVoicePlainText ?? '').trim();
+    return {
+      version: 1,
+      scope: dto.scope,
+      targetJobTitles: dto.targetJobTitles,
+      productServiceSolution: dto.productServiceSolution,
+      importantConsiderations: dto.importantConsiderations ?? '',
+      outputLanguage: dto.outputLanguage,
+      toneOfVoiceAsset,
+      toneOfVoicePlainText: plain.length > 0 ? plain : null,
+      sourceCompanyListId: companyListId,
+    };
+  }
+
+  async createCompanyListSaveCampaignContext(
+    userId: string,
+    projectId: string,
+    dto: SaveCampaignContextFormDtoType,
+    file: UploadedToneFile | undefined
+  ): Promise<SaveCampaignContextResult> {
+    await assertProjectAccess(userId, projectId);
+
+    const listName = dto.listName ?? `Campaign context (${dto.scope})`;
+    const listMetadata: JsonValue = { scope: dto.scope };
+
+    const created = await prisma.companyList.create({
+      data: {
+        projectId,
+        createdBy: userId,
+        name: listName,
+        headers: toRequiredPrismaJson([]),
+        rowCount: 0,
+        campaignContext: Prisma.JsonNull,
+        metadata: toNullablePrismaJson(listMetadata),
+      },
+      select: {
+        id: true,
+        projectId: true,
+        createdBy: true,
+        name: true,
+        rowCount: true,
+        headers: true,
+        campaignContext: true,
+        metadata: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    let toneAsset: JsonValue | null = null;
+
+    if (file) {
+      try {
+        const destDir = path.join(LOCAL_UPLOAD_ROOT, TONE_OF_VOICE_SEGMENT, projectId, created.id);
+        await fs.mkdir(destDir, { recursive: true });
+        const storedFileName = path.basename(file.filename);
+        const finalAbs = path.join(destDir, storedFileName);
+        await fs.copyFile(file.path, finalAbs);
+        await fs.unlink(file.path);
+        const relativePath = buildToneOfVoiceRelativePath(projectId, created.id, storedFileName);
+        logger.info(
+          `toneOfVoice stored projectId=${projectId} listId=${created.id} tmp=${file.path} final=${finalAbs}`
+        );
+        toneAsset = {
+          originalFileName: file.originalname,
+          storedRelativePath: relativePath,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        };
+      } catch (error) {
+        await fs.unlink(file.path).catch(() => undefined);
+        throw error;
+      }
+    }
+
+    const finalContext = this.buildCampaignContextJson(dto, toneAsset, created.id);
+
+    const updatedList = await prisma.companyList.update({
+      where: { id: created.id },
+      data: { campaignContext: toNullablePrismaJson(finalContext) },
+      select: {
+        id: true,
+        projectId: true,
+        createdBy: true,
+        name: true,
+        rowCount: true,
+        headers: true,
+        campaignContext: true,
+        metadata: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const mappedResponse = this.mapCompanyListResponse(updatedList);
+
+    await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: ProjectStatus.ACTIVE,
+        campaignContext: toNullablePrismaJson(finalContext),
+      },
+    });
+
+    logger.info(`createCompanyListSaveCampaignContext projectId=${projectId} listId=${mappedResponse.id} status=ACTIVE`);
+    return {
+      companyList: mappedResponse,
+      projectCampaignContextSynced: true,
+      projectStatus: ProjectStatus.ACTIVE,
+    };
+  }
+
+  async resolveToneOfVoiceDownload(
+    userId: string,
+    projectId: string,
+    companyListId: string
+  ): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string; downloadName: string } | null> {
+    await assertProjectAccess(userId, projectId);
+
+    const row = await prisma.companyList.findFirst({
+      where: { id: companyListId, projectId, isDeleted: false },
+      select: { campaignContext: true },
+    });
+    if (!row?.campaignContext) {
+      return null;
+    }
+
+    const raw = row.campaignContext;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      return null;
+    }
+
+    const root = raw as Record<string, JsonValue>;
+    if (root['version'] !== 1) {
+      return null;
+    }
+
+    const assetRaw = root['toneOfVoiceAsset'];
+    if (assetRaw === null || typeof assetRaw !== 'object' || assetRaw === null || Array.isArray(assetRaw)) {
+      return null;
+    }
+
+    const asset = assetRaw as Record<string, JsonValue>;
+    const rel = asset['storedRelativePath'];
+    const orig = asset['originalFileName'];
+    const mime = asset['mimeType'];
+    if (typeof rel !== 'string' || typeof orig !== 'string' || typeof mime !== 'string') {
+      return null;
+    }
+
+    const abs = resolveToneOfVoiceAbsolutePath(rel);
+    const allowedPrefix = path.resolve(path.join(LOCAL_UPLOAD_ROOT, TONE_OF_VOICE_SEGMENT, projectId, companyListId));
+    const resolvedAbs = path.resolve(abs);
+    if (resolvedAbs !== allowedPrefix && !resolvedAbs.startsWith(`${allowedPrefix}${path.sep}`)) {
+      return null;
+    }
+
+    try {
+      await fs.access(resolvedAbs);
+    } catch {
+      return null;
+    }
+
+    const stream = createReadStream(resolvedAbs);
+    return { stream, mimeType: mime, downloadName: orig };
   }
 
   async getCompanyList(

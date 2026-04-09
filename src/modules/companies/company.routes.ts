@@ -10,6 +10,7 @@ import { companyController } from './company.controller.js';
 
 // Middleware
 import { authenticate } from '../../middleware/auth.js';
+import { runToneOfVoiceUploadOptional } from '../../middleware/toneOfVoiceUpload.middleware.js';
 
 // Constants
 import { ROUTES } from '../../utils/constants/routes.js';
@@ -47,6 +48,29 @@ router.post(
     SCOPE.COMPANY_LISTS,
     authenticate,
     companyController.createCompanyList
+);
+
+/**
+ * @route   POST /api/projects/:projectId/company-lists/save-campaign-context
+ * @desc    Multipart save: campaign context fields + optional toneOfVoice file (stored on server disk).
+ * @access  Protected
+ */
+router.post(
+    SCOPE.COMPANY_LIST_SAVE_CAMPAIGN_CONTEXT,
+    authenticate,
+    runToneOfVoiceUploadOptional,
+    companyController.saveCampaignContext
+);
+
+/**
+ * @route   GET /api/projects/:projectId/company-lists/:companyListId/tone-of-voice/download
+ * @desc    Streams the tone-of-voice file for this list when present in campaignContext.
+ * @access  Protected
+ */
+router.get(
+    SCOPE.COMPANY_LIST_TONE_DOWNLOAD,
+    authenticate,
+    companyController.downloadToneOfVoice
 );
 
 /**
