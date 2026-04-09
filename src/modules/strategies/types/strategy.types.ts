@@ -113,3 +113,9 @@ export interface PaginatedActivationAssets {
   totalCount: number;
   totalPages: number;
 }
+
+export interface StrategyCreateBundle {
+  strategy: StrategyResponse;
+  steps: StrategyStepResponse[];
+  activationAssets: ActivationAssetResponse[];
+}
