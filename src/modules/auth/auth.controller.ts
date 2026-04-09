@@ -61,8 +61,10 @@ export class AuthController {
   }
 
   /**
-   * Request magic link
-   * POST /api/auth/magic-link/request
+   * @route   POST /api/auth/magic-link/request
+   * @desc    Validates the email via RequestMagicLinkDto, then delegates to authService.requestMagicLink.
+   *          Returns a message-only success response describing the magic link flow outcome (no cookies set here).
+   * @access  Public
    */
   requestMagicLink = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -79,8 +81,10 @@ export class AuthController {
   };
 
   /**
-   * Register with email + password (PHASE1: no verification email; account is usable immediately)
-   * POST /api/auth/register
+   * @route   POST /api/auth/register
+   * @desc    Validates registration fields via RegisterDto, then delegates to authService.register.
+   *          Returns a message-only success response (PHASE1: no verification email; account is usable immediately).
+   * @access  Public
    */
   register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -95,8 +99,11 @@ export class AuthController {
   };
 
   /**
-   * Login with email + password (PHASE1: issues tokens without requiring prior email verification)
-   * POST /api/auth/login
+   * @route   POST /api/auth/login
+   * @desc    Validates email and password via LoginDto, then delegates to authService.login with session info.
+   *          When tokens are issued (PHASE1: without requiring prior email verification), sets HTTP-only auth cookies and returns AuthResponse.
+   *          Otherwise returns a message-only body when an intermediate step is required.
+   * @access  Public
    */
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -119,8 +126,10 @@ export class AuthController {
   };
 
   /**
-   * Resend verification link for unverified accounts
-   * POST /api/auth/resend-verification
+   * @route   POST /api/auth/resend-verification
+   * @desc    Validates the email via ResendVerificationDto, then delegates to authService.resendVerification.
+   *          Returns a message-only success response for the verification email flow.
+   * @access  Public
    */
   resendVerification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -135,8 +144,10 @@ export class AuthController {
   };
 
   /**
-   * Verify magic link token
-   * GET /api/auth/magic-link/verify?token=...
+   * @route   GET /api/auth/magic-link/verify
+   * @desc    Validates the token query via VerifyMagicLinkQueryDto (with normalized query), then delegates to authService.verifyMagicLinkToken.
+   *          On success, sets HTTP-only auth cookies and returns AuthResponse with the user profile and tokens.
+   * @access  Public
    */
   verifyMagicLink = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -161,8 +172,10 @@ export class AuthController {
   };
 
   /**
-   * Refresh access token
-   * POST /api/auth/refresh
+   * @route   POST /api/auth/refresh
+   * @desc    Validates RefreshTokenDto and resolves the refresh token from cookies or body, then delegates to authService.refreshAccessToken.
+   *          Returns updated tokens and sets HTTP-only auth cookies on success; responds with 400 when no refresh token is present.
+   * @access  Public
    */
   refreshToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -188,10 +201,10 @@ export class AuthController {
   };
 
   /**
-   * Get current authenticated user
-   * GET /api/auth/me
-   *
-   * Returns the full safe profile (including firstName, lastName, avatarUrl) for the JWT subject.
+   * @route   GET /api/auth/me
+   * @desc    Requires req.user from the JWT, then delegates to authService.getProfile for that user id.
+   *          Returns the full safe profile (including firstName, lastName, avatarUrl) or 404 when the user record is missing.
+   * @access  Protected
    */
   me = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -213,10 +226,10 @@ export class AuthController {
   };
 
   /**
-   * Update the authenticated user's display name (first and last name only).
-   * PATCH /api/auth/me
-   *
-   * Email, password, and role cannot be changed through this endpoint; use dedicated auth flows for those.
+   * @route   PATCH /api/auth/me
+   * @desc    Requires req.user, validates UpdateProfileDto, then delegates to authService.updateProfile for first and last name only.
+   *          Returns the updated user payload; email, password, and role are not changed here (use dedicated auth flows).
+   * @access  Protected
    */
   patchMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -238,8 +251,10 @@ export class AuthController {
   };
 
   /**
-   * Logout (revoke refresh token or all sessions)
-   * POST /api/auth/logout
+   * @route   POST /api/auth/logout
+   * @desc    Requires req.user, resolves refresh token from cookies or body, then delegates to authService.logout to revoke the current or all sessions.
+   *          Clears auth cookies and returns a message indicating single-session versus all-sessions logout.
+   * @access  Protected
    */
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
