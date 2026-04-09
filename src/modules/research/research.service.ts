@@ -17,7 +17,6 @@ import type { UserContext } from '../gemini/types/gemini.types.js';
 
 // Utils
 import { assertProjectAccess } from '../../utils/helpers/projectAccess.js';
-import { createLogger } from '../../utils/helpers/logger.js';
 import { toNullablePrismaJson, toRequiredPrismaJson } from '../../utils/prisma/jsonInputs.js';
 import { jsonValueSchema } from '../../utils/validation/jsonValue.schema.js';
 
@@ -45,8 +44,6 @@ import type {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
-const logger = createLogger('ResearchService');
 
 const DEFAULT_USER_CONTEXT: UserContext = {
   campaignGoal: '',
@@ -497,11 +494,17 @@ export class ResearchService {
     return true;
   }
 
+  /**
+   * @route   POST /api/projects/:projectId/company-research/:companyResearchId/run
+   * @desc    Runs the Gemini research job to completion on this request and returns the final row.
+   *          Clients should use a long HTTP timeout; no polling is required after this response.
+   * @access  Protected
+   */
   async startCompanyResearchRun(
     userId: string,
     projectId: string,
     companyResearchId: string
-  ): Promise<{ companyResearchId: string; message: string }> {
+  ): Promise<CompanyResearchResponse> {
     await assertProjectAccess(userId, projectId);
 
     const row = await prisma.companyResearch.findFirst({
@@ -529,16 +532,14 @@ export class ResearchService {
       },
     });
 
-    setImmediate(() => {
-      void this.executeCompanyResearchJob(userId, projectId, companyResearchId).catch((err) => {
-        logger.error(`Research job failed for ${companyResearchId}`, err);
-      });
-    });
+    await this.executeCompanyResearchJob(userId, projectId, companyResearchId);
 
-    return {
-      companyResearchId,
-      message: 'Research run started; poll GET company-research until status is COMPLETED or ERROR.',
-    };
+    const finalRow = await this.getCompanyResearch(userId, projectId, companyResearchId);
+    if (!finalRow) {
+      throw Object.assign(new Error('Company research not found after run'), { statusCode: 500 });
+    }
+
+    return finalRow;
   }
 
   private async executeCompanyResearchJob(
@@ -595,7 +596,13 @@ export class ResearchService {
         websiteUrl,
         linkedinUrl,
         extraContext,
-        userContext
+        userContext,
+        {
+          userId: row.createdBy,
+          projectId: row.projectId,
+          companyResearchId: row.id,
+          companyId: row.companyId,
+        }
       );
 
       const researchDataJson = jsonValueSchema.parse(JSON.parse(JSON.stringify(result.data)));
