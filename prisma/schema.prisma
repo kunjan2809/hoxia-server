@@ -311,9 +311,9 @@ model CompanyResearch {
   companyId String @unique @map("company_id")
   createdBy String @map("created_by")
 
-  originalData   Json              @map("original_data")
+  originalData   Json              @map("original_data") // raw user data
   researchStatus ResearchRowStatus @default(IDLE) @map("research_status")
-  researchData   Json?             @map("research_data")
+  researchData   Json?             @map("research_data") //ai data
   sources        Json?             @map("sources")
   activeStrategy StrategicAngle?   @map("active_strategy")
   researchError  String?           @map("research_error") @db.Text
