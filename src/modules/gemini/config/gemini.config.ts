@@ -12,10 +12,16 @@ export const GEMINI_MODEL_NAME = 'gemini-3.1-flash-lite-preview' as const;
 export const RATE_LIMIT_CONFIG = {
   requestsPerMinute: 60,
   windowMs: 60_000,
-  initialBackoffMs: 5_000,
-  maxRetries: 8,
-  jitterMs: 3_000,
+  /** Base delay before a rate-limit retry (capped by maxBackoffMs). */
+  initialBackoffMs: 3_000,
+  /** Inclusive upper bound on attempt index: attempts = 0..maxRetries (maxRetries + 1 tries). Keep low so long-running routes return quickly. */
+  maxRetries: 1,
+  jitterMs: 2_000,
   slotDelayMs: 1_000,
+  /** Never sleep longer than this for one backoff (local or global window). */
+  maxBackoffMs: 25_000,
+  /** If another request set a global wait longer than this, fail fast instead of blocking the HTTP request. */
+  maxGlobalWaitBeforeFailMs: 12_000,
 } as const;
 
 export const WRITING_PRINCIPLES = `
