@@ -19,6 +19,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+const buildRateLimitExhaustedError = (detail: string): Error & { code: string } => {
+  const message = `Gemini API rate limit or quota exceeded. ${detail}`;
+  return Object.assign(new Error(message), { code: 'GEMINI_RATE_LIMIT_EXHAUSTED' });
+};
+
 class GeminiRateLimiter {
   private readonly windows: Map<string, number[]> = new Map();
 
@@ -59,7 +64,7 @@ class GeminiRateLimiter {
   }
 }
 
-const isRateLimitError = (error: unknown): boolean => {
+export const isGeminiRateLimitError = (error: unknown): boolean => {
   let message = '';
   let errorStr = '';
   let is429 = false;
@@ -128,7 +133,8 @@ export class GeminiClient {
   async call<T>(fn: () => Promise<T>, feature: string): Promise<T> {
     this.rateLimiter.consume(feature);
 
-    const { maxRetries, initialBackoffMs, jitterMs, slotDelayMs } = RATE_LIMIT_CONFIG;
+    const { maxRetries, initialBackoffMs, jitterMs, slotDelayMs, maxBackoffMs, maxGlobalWaitBeforeFailMs } =
+      RATE_LIMIT_CONFIG;
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -146,6 +152,12 @@ export class GeminiClient {
       const now = Date.now();
       if (now < this.globalBackoffUntil) {
         const wait = this.globalBackoffUntil - now + Math.random() * 1_000;
+        if (wait > maxGlobalWaitBeforeFailMs) {
+          logger.warn(
+            `Global backoff ${Math.round(wait)}ms exceeds max wait ${maxGlobalWaitBeforeFailMs}ms — failing fast (attempt ${attempt + 1})`,
+          );
+          throw buildRateLimitExhaustedError('Try again in a minute or reduce concurrent Gemini requests.');
+        }
         logger.warn(`Global backoff active — waiting ${Math.round(wait)}ms (attempt ${attempt + 1})`);
         await delay(wait);
       }
@@ -155,21 +167,31 @@ export class GeminiClient {
       } catch (error) {
         lastError = error;
 
-        if (isRateLimitError(error) && attempt < maxRetries) {
-          const backoff = initialBackoffMs * Math.pow(2, attempt) + Math.random() * jitterMs;
+        const canRetryRateLimit = isGeminiRateLimitError(error) && attempt < maxRetries;
+        if (canRetryRateLimit) {
+          const rawBackoff = initialBackoffMs * Math.pow(2, attempt) + Math.random() * jitterMs;
+          const backoff = Math.min(rawBackoff, maxBackoffMs);
           this.globalBackoffUntil = Date.now() + backoff;
           logger.warn(
             `Gemini rate limit hit — retrying in ${Math.round(backoff)}ms ` +
-              `(attempt ${attempt + 1}/${maxRetries})`,
+              `(attempt ${attempt + 1} of ${maxRetries + 1})`,
           );
           await delay(backoff);
           continue;
+        }
+
+        if (isGeminiRateLimitError(error)) {
+          throw buildRateLimitExhaustedError('No more retries. Wait and try again shortly.');
         }
 
         throw error;
       }
     }
 
-    throw lastError;
+    if (lastError !== undefined && isGeminiRateLimitError(lastError)) {
+      throw buildRateLimitExhaustedError('No more retries. Wait and try again shortly.');
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Gemini request failed');
   }
 }

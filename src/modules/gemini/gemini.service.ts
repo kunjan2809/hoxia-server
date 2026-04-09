@@ -11,6 +11,13 @@ import { GeminiClient } from './gemini.client.js';
 // Config
 import { GEMINI_MODEL_NAME, WRITING_PRINCIPLES } from './config/gemini.config.js';
 
+// Prisma enums
+import { LlmOperationKind } from '../../generated/prisma/enums.js';
+
+// LLM logging
+import { recordGeminiFailure, recordGeminiSuccess } from '../llm/llmApiCall.service.js';
+import type { GeminiLlmCallContext } from '../llm/types/llmCallContext.types.js';
+
 // Types
 import type {
   ActivationContext,
@@ -95,15 +102,45 @@ export class GeminiService {
     }
   }
 
-  async verifyDataStatus(): Promise<{ ok: true; model: typeof GEMINI_MODEL_NAME; checkedAt: string }> {
+  private async runLoggedGenerateContent<T>(
+    operationKind: LlmOperationKind,
+    logContext: GeminiLlmCallContext,
+    feature: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
     const client = GeminiClient.getInstance();
-    await client.call(
-      () =>
-        client.models.generateContent({
-          model: GEMINI_MODEL_NAME,
-          contents: 'Reply with OK',
-        }),
-      'verify',
+    const started = Date.now();
+    try {
+      const response = await client.call(fn, feature);
+      const latencyMs = Date.now() - started;
+      await recordGeminiSuccess({
+        ...logContext,
+        operationKind,
+        latencyMs,
+        groundingSearchUsed: false,
+        response,
+      });
+      return response;
+    } catch (error) {
+      const latencyMs = Date.now() - started;
+      await recordGeminiFailure({
+        ...logContext,
+        operationKind,
+        latencyMs,
+        groundingSearchUsed: false,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  async verifyDataStatus(userId: string): Promise<{ ok: true; model: typeof GEMINI_MODEL_NAME; checkedAt: string }> {
+    const client = GeminiClient.getInstance();
+    await this.runLoggedGenerateContent(LlmOperationKind.RESEARCH, { userId }, 'verify', () =>
+      client.models.generateContent({
+        model: GEMINI_MODEL_NAME,
+        contents: 'Reply with OK',
+      })
     );
     return { ok: true, model: GEMINI_MODEL_NAME, checkedAt: new Date().toISOString() };
   }
@@ -114,6 +151,7 @@ export class GeminiService {
     linkedinUrl: string,
     extraContext: string,
     userContext: UserContext,
+    logContext: GeminiLlmCallContext
   ): Promise<ResearchResponse> {
     const client = GeminiClient.getInstance();
     logger.info(`Researching company: ${companyName}`);
@@ -174,7 +212,10 @@ export class GeminiService {
       3. The actual Company Name (e.g. "${companyName}'s current architecture..." or "Challenge the sustainability of ${companyName}'s growth...").
 `;
 
-    const response = await client.call(
+    const response = await this.runLoggedGenerateContent(
+      LlmOperationKind.RESEARCH,
+      logContext,
+      'research',
       () =>
         client.models.generateContent({
           model: GEMINI_MODEL_NAME,
@@ -277,8 +318,7 @@ export class GeminiService {
               ],
             },
           },
-        }),
-      'research',
+        })
     );
 
     const text = response.text ?? '';
@@ -317,6 +357,7 @@ export class GeminiService {
     activation: ActivationContext,
     user: UserContext,
     config: AssetConfig,
+    logContext: GeminiLlmCallContext,
     numVariants = 3,
   ): Promise<GeneratedActivationAsset[]> {
     const client = GeminiClient.getInstance();
@@ -376,7 +417,10 @@ export class GeminiService {
     Return as a JSON array of objects.
   `;
 
-    const response = await client.call(
+    const response = await this.runLoggedGenerateContent(
+      LlmOperationKind.ASSET_GENERATION,
+      logContext,
+      'activation',
       () =>
         client.models.generateContent({
           model: GEMINI_MODEL_NAME,
@@ -399,8 +443,7 @@ export class GeminiService {
               },
             },
           },
-        }),
-      'activation',
+        })
     );
 
     const parsed = this.parseJSON<GeneratedActivationAsset[]>(response.text, []);
@@ -422,6 +465,7 @@ export class GeminiService {
   async generateBulkCampaignAssets(
     payload: BulkActivationPayload,
     user: UserContext,
+    logContext: GeminiLlmCallContext
   ): Promise<GeneratedBulkActivationAsset[]> {
     const client = GeminiClient.getInstance();
     const { accounts, resolved_angles, output_config } = payload;
@@ -476,7 +520,10 @@ export class GeminiService {
     - IF Output Type is "LinkedIn connection note" -> 'generated_text' MUST be < 200 characters.
   `;
 
-    const response = await client.call(
+    const response = await this.runLoggedGenerateContent(
+      LlmOperationKind.ASSET_GENERATION,
+      logContext,
+      'activation_bulk',
       () =>
         client.models.generateContent({
           model: GEMINI_MODEL_NAME,
@@ -499,8 +546,7 @@ export class GeminiService {
               },
             },
           },
-        }),
-      'activation_bulk',
+        })
     );
 
     const raw = this.parseJSON<GeneratedBulkActivationAsset[]>(response.text, []);
@@ -526,6 +572,7 @@ export class GeminiService {
     activation: ActivationContext,
     user: UserContext,
     config: SequenceConfig,
+    logContext: GeminiLlmCallContext
   ): Promise<GeneratedSequenceStep[]> {
     const client = GeminiClient.getInstance();
     const { researchData, foundation, companyName, angle } = activation;
@@ -595,7 +642,10 @@ export class GeminiService {
     Return as a JSON array of objects.
   `;
 
-    const response = await client.call(
+    const response = await this.runLoggedGenerateContent(
+      LlmOperationKind.STRATEGY,
+      logContext,
+      'strategy_sequence',
       () =>
         client.models.generateContent({
           model: GEMINI_MODEL_NAME,
@@ -619,8 +669,7 @@ export class GeminiService {
               },
             },
           },
-        }),
-      'strategy_sequence',
+        })
     );
 
     const result = this.parseJSON<GeneratedSequenceStep[]>(response.text, []);
@@ -633,6 +682,7 @@ export class GeminiService {
     user: UserContext,
     config: TouchpointConfig,
     missingTypes: string[],
+    logContext: GeminiLlmCallContext
   ): Promise<GeneratedSequenceStep[]> {
     const client = GeminiClient.getInstance();
     const { researchData, foundation, companyName, angle } = activation;
@@ -698,7 +748,10 @@ export class GeminiService {
     Return as a JSON array of objects.
   `;
 
-    const response = await client.call(
+    const response = await this.runLoggedGenerateContent(
+      LlmOperationKind.STRATEGY,
+      logContext,
+      'strategy_touchpoints',
       () =>
         client.models.generateContent({
           model: GEMINI_MODEL_NAME,
@@ -722,8 +775,7 @@ export class GeminiService {
               },
             },
           },
-        }),
-      'strategy_touchpoints',
+        })
     );
 
     const result = this.parseJSON<GeneratedSequenceStep[]>(response.text, []);
