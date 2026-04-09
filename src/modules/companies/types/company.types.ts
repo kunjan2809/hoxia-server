@@ -3,7 +3,7 @@
 // ============================================================================
 
 // Prisma enums
-import type { CompanyType } from '../../../generated/prisma/enums.js';
+import type { CompanyType, ProjectStatus } from '../../../generated/prisma/enums.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
 
 // ============================================================================
@@ -63,4 +63,10 @@ export interface PaginatedCompanies {
 export interface BulkCompaniesResult {
   createdCount: number;
   ids: string[];
+}
+
+export interface SaveCampaignContextResult {
+  companyList: CompanyListResponse;
+  projectCampaignContextSynced: boolean;
+  projectStatus: ProjectStatus;
 }
