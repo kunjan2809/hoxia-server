@@ -8,10 +8,18 @@ import { prisma } from '../../config/prisma.js';
 // Prisma
 import { Prisma } from '../../generated/prisma/client.js';
 
+// Prisma enums
+import { Cadence, OutputType } from '../../generated/prisma/enums.js';
+
+// Gemini
+import { geminiService } from '../gemini/gemini.service.js';
+import type { ActivationContext, ResearchResult, UserContext } from '../gemini/types/gemini.types.js';
+
 // Utils
 import { assertProjectAccess } from '../../utils/helpers/projectAccess.js';
 import { createLogger } from '../../utils/helpers/logger.js';
 import { toNullablePrismaJson } from '../../utils/prisma/jsonInputs.js';
+import type { JsonValue } from '../../utils/validation/jsonValue.schema.js';
 
 // DTO types
 import type {
@@ -33,11 +41,20 @@ import type {
   PaginatedActivationAssets,
   PaginatedStrategies,
   PaginatedStrategySteps,
+  StrategyCreateBundle,
   StrategyListItem,
   StrategyResponse,
   StrategyStepItem,
   StrategyStepResponse,
 } from './types/strategy.types.js';
+
+import {
+  mapCadenceLabelToEnum,
+  mapObjectiveLabelToEnum,
+  mapPersonaLabelToEnum,
+  mapToneLabelToEnum,
+  strategicAngleToUiLabel,
+} from './strategyLabelMaps.js';
 
 // ============================================================================
 // CONSTANTS
@@ -332,15 +349,24 @@ export class StrategyService {
     };
   }
 
-  async createStrategy(
-    userId: string,
-    projectId: string,
-    dto: CreateStrategyDtoType
-  ): Promise<StrategyResponse> {
+  async createStrategy(userId: string, projectId: string, dto: CreateStrategyDtoType): Promise<StrategyCreateBundle> {
     await assertProjectAccess(userId, projectId);
 
     const { upsert: _upsert, ...payload } = dto;
     void _upsert;
+
+    if (payload.llmGeneration) {
+      return this.createStrategyWithLlm(userId, projectId, payload);
+    }
+
+    if (
+      payload.objective === undefined ||
+      payload.outputType === undefined ||
+      payload.tone === undefined ||
+      payload.senderPersona === undefined
+    ) {
+      throw Object.assign(new Error('objective, outputType, tone, and senderPersona are required'), { statusCode: 400 });
+    }
 
     await this.validateOptionalFks(projectId, {
       companyId: payload.companyId,
@@ -402,7 +428,719 @@ export class StrategyService {
     });
 
     logger.info(`createStrategy projectId=${projectId} strategyId=${created.id}`);
-    return this.mapStrategyDetail(created);
+    return {
+      strategy: this.mapStrategyDetail(created),
+      steps: [],
+      activationAssets: [],
+    };
+  }
+
+  private isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private extractResearchResultFromCompanyResearch(raw: Prisma.JsonValue | null): ResearchResult {
+    if (raw === null || raw === undefined) {
+      throw Object.assign(new Error('Company research data missing'), { statusCode: 400 });
+    }
+    let root: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        root = JSON.parse(raw) as unknown;
+      } catch {
+        throw Object.assign(new Error('Invalid company research JSON'), { statusCode: 400 });
+      }
+    }
+    if (!this.isPlainRecord(root)) {
+      throw Object.assign(new Error('Company research data is not an object'), { statusCode: 400 });
+    }
+    const nested = root['data'];
+    const dataLayer = this.isPlainRecord(nested) ? nested : root;
+    return dataLayer as unknown as ResearchResult;
+  }
+
+  private inferChannelFromOutputType(outputType: string): string {
+    const t = outputType.toLowerCase();
+    if (t.includes('linkedin')) {
+      return 'LinkedIn';
+    }
+    if (t.includes('call')) {
+      return 'Call';
+    }
+    return 'Email';
+  }
+
+  private toFoundationConfidence(value: string): 'High' | 'Medium' | 'Low' {
+    if (value === 'High' || value === 'Medium' || value === 'Low') {
+      return value;
+    }
+    return 'Medium';
+  }
+
+  private async createStrategyWithLlm(
+    userId: string,
+    projectId: string,
+    payload: CreateStrategyDtoType
+  ): Promise<StrategyCreateBundle> {
+    const llm = payload.llmGeneration;
+    if (!llm) {
+      throw Object.assign(new Error('LLM generation payload missing'), { statusCode: 400 });
+    }
+
+    const companyId = payload.companyId;
+    const companyResearchId = payload.companyResearchId;
+    const researchReportId = payload.researchReportId;
+
+    if (
+      companyId === undefined ||
+      companyId === null ||
+      companyResearchId === undefined ||
+      companyResearchId === null ||
+      researchReportId === undefined ||
+      researchReportId === null
+    ) {
+      throw Object.assign(new Error('companyId, companyResearchId, and researchReportId are required for LLM strategy'), {
+        statusCode: 400,
+      });
+    }
+
+    await this.validateOptionalFks(projectId, {
+      companyId,
+      companyResearchId,
+      researchReportId,
+    });
+
+    const companyResearch = await prisma.companyResearch.findFirst({
+      where: { id: companyResearchId, projectId, isDeleted: false },
+      include: {
+        company: { select: { companyName: true } },
+      },
+    });
+    if (!companyResearch) {
+      throw Object.assign(new Error('Company research not found'), { statusCode: 404 });
+    }
+
+    const researchData = this.extractResearchResultFromCompanyResearch(companyResearch.researchData);
+
+    const angle = payload.angle;
+    const foundation =
+      angle === 'PRIMARY'
+        ? researchData.primaryFoundation
+        : angle === 'SUPPORTING'
+          ? researchData.supportingFoundation
+          : researchData.contrarianFoundation;
+
+    const companyDisplayName =
+      researchData.formalCompanyName.trim().length > 0
+        ? researchData.formalCompanyName
+        : companyResearch.company.companyName ?? 'Unknown';
+
+    const activation: ActivationContext = {
+      companyName: companyDisplayName,
+      angle: strategicAngleToUiLabel(angle),
+      researchData,
+      foundation,
+    };
+
+    const u = llm.userContext;
+    const user: UserContext = {
+      campaignGoal: u.campaignGoal,
+      proposition: u.proposition,
+      audience: u.audience,
+      ...(u.language !== undefined ? { language: u.language } : {}),
+      ...(u.influenceFocus !== undefined ? { influenceFocus: u.influenceFocus } : {}),
+      ...(u.importantConsiderations !== undefined ? { importantConsiderations: u.importantConsiderations } : {}),
+      ...(u.toneOfVoiceContent !== undefined ? { toneOfVoiceContent: u.toneOfVoiceContent } : {}),
+    };
+
+    const objectiveEnum = mapObjectiveLabelToEnum(llm.labels.objective);
+    const toneEnum = mapToneLabelToEnum(llm.labels.tone);
+    const personaEnum = mapPersonaLabelToEnum(llm.labels.persona);
+
+    let outputTypeEnum: OutputType;
+    let cadenceEnum: Cadence | null = null;
+
+    if (llm.mode === 'LIBRARY_MISSING_TOUCHPOINTS') {
+      outputTypeEnum = OutputType.OUTREACH_FRAMEWORK;
+      const cadenceLabel = llm.labels.cadence?.trim();
+      if (cadenceLabel === undefined || cadenceLabel.length === 0) {
+        throw Object.assign(new Error('Cadence is required for library missing touchpoints'), { statusCode: 400 });
+      }
+      cadenceEnum = mapCadenceLabelToEnum(cadenceLabel);
+      const libraryPayload = llm.library;
+      if (!libraryPayload) {
+        throw Object.assign(new Error('Library payload is required'), { statusCode: 400 });
+      }
+
+      const missingTypes = libraryPayload.missingTypes;
+      const generatedMissing =
+        missingTypes.length > 0
+          ? await geminiService.generateMissingTouchpoints(
+              activation,
+              user,
+              {
+                objective: llm.labels.objective,
+                tone: llm.labels.tone,
+                persona: llm.labels.persona,
+              },
+              missingTypes,
+              {
+                userId,
+                projectId,
+                companyResearchId,
+                researchReportId,
+                companyId,
+              }
+            )
+          : [];
+
+      const existingIds = libraryPayload.stepBlueprints
+        .map((b) => b.existing?.activationAssetId)
+        .filter((id): id is string => id !== undefined);
+      const existingAssets =
+        existingIds.length > 0
+          ? await prisma.activationAsset.findMany({
+              where: { id: { in: existingIds }, projectId, isDeleted: false },
+              select: { id: true },
+            })
+          : [];
+      const existingAssetIdSet = new Set(existingAssets.map((a) => a.id));
+      for (const id of existingIds) {
+        if (!existingAssetIdSet.has(id)) {
+          throw Object.assign(new Error(`Activation asset not found: ${id}`), { statusCode: 404 });
+        }
+      }
+
+      const bundle = await prisma.$transaction(async (tx) => {
+        await tx.strategy.updateMany({
+          where: {
+            projectId,
+            companyId,
+            angle,
+            objective: objectiveEnum,
+            outputType: outputTypeEnum,
+            isDeleted: false,
+          },
+          data: { isDeleted: true, deletedAt: new Date() },
+        });
+
+        const strategyRow = await tx.strategy.create({
+          data: {
+            projectId,
+            createdBy: userId,
+            name: payload.name,
+            angle,
+            objective: objectiveEnum,
+            outputType: outputTypeEnum,
+            cadence: cadenceEnum,
+            tone: toneEnum,
+            senderPersona: personaEnum,
+            companyId,
+            companyResearchId,
+            researchReportId,
+            metadata: toNullablePrismaJson(strategyMetadata),
+          },
+          select: {
+            id: true,
+            projectId: true,
+            createdBy: true,
+            name: true,
+            angle: true,
+            objective: true,
+            outputType: true,
+            cadence: true,
+            tone: true,
+            senderPersona: true,
+            pacingNotes: true,
+            companyId: true,
+            companyResearchId: true,
+            researchReportId: true,
+            metadata: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        const activationAssets: ActivationAssetResponse[] = [];
+        const stepResponses: StrategyStepResponse[] = [];
+        const generatedQueue = [...generatedMissing];
+        const sortedBlueprints = [...libraryPayload.stepBlueprints].sort((a, b) => a.stepOrder - b.stepOrder);
+
+        for (const blueprint of sortedBlueprints) {
+          let activationAssetId: string | null = null;
+          let assetName = '';
+          let channel = '';
+          let confidence: 'High' | 'Medium' | 'Low' = foundation.confidence;
+          let preview = '';
+          let subjectLine: string | null = null;
+          let metadataForStep: JsonValue | null = null;
+
+          if (blueprint.existing) {
+            activationAssetId = blueprint.existing.activationAssetId;
+            assetName = blueprint.existing.assetName;
+            channel = blueprint.existing.channel;
+            confidence = this.toFoundationConfidence(blueprint.existing.confidence);
+            preview = blueprint.existing.preview;
+            subjectLine = blueprint.existing.subjectLine ?? null;
+          } else {
+            const nextGenerated = generatedQueue.shift();
+            if (!nextGenerated) {
+              throw Object.assign(new Error('Missing generated touchpoints for one or more blueprint slots'), { statusCode: 500 });
+            }
+            const createdAsset = await tx.activationAsset.create({
+              data: {
+                projectId,
+                createdBy: userId,
+                source: 'library_missing_touchpoints',
+                angleUsed: angle,
+                insightClaim: foundation.trigger,
+                confidence: foundation.confidence,
+                objective: objectiveEnum,
+                outputType: OutputType.SINGLE_TOUCHPOINT,
+                outputPreview: nextGenerated.content,
+                subjectLine: nextGenerated.subject_line ?? null,
+                strategicAngle: nextGenerated.strategic_angle,
+                whyItFits: nextGenerated.objective_fit,
+                approachGuidance: nextGenerated.approach_guidance,
+                companyResearchId,
+                researchReportId,
+                companyId,
+              },
+              select: {
+                id: true,
+                projectId: true,
+                createdBy: true,
+                source: true,
+                angleUsed: true,
+                insightClaim: true,
+                confidence: true,
+                objective: true,
+                outputType: true,
+                outputPreview: true,
+                subjectLine: true,
+                strategicAngle: true,
+                whyItFits: true,
+                approachGuidance: true,
+                companyResearchId: true,
+                researchReportId: true,
+                companyId: true,
+                metadata: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            });
+            activationAssets.push(this.mapActivationDetail(createdAsset));
+            activationAssetId = createdAsset.id;
+            assetName = nextGenerated.output_type;
+            channel = this.inferChannelFromOutputType(nextGenerated.output_type);
+            confidence = foundation.confidence;
+            preview = nextGenerated.content;
+            subjectLine = nextGenerated.subject_line ?? null;
+            metadataForStep = JSON.parse(
+              JSON.stringify({
+                strategic_angle: nextGenerated.strategic_angle,
+                objective_fit: nextGenerated.objective_fit,
+                approach_guidance: nextGenerated.approach_guidance,
+              })
+            ) as JsonValue;
+          }
+
+          const createdStep = await tx.strategyStep.create({
+            data: {
+              strategyId: strategyRow.id,
+              createdBy: userId,
+              role: blueprint.role,
+              day: blueprint.day,
+              stepOrder: blueprint.stepOrder,
+              assetName,
+              channel,
+              strategyAngle: angle,
+              confidence,
+              preview,
+              subjectLine,
+              companyId,
+              companyResearchId,
+              researchReportId,
+              activationAssetId,
+              ...(metadataForStep ? { metadata: toNullablePrismaJson(metadataForStep) } : {}),
+            },
+            select: {
+              id: true,
+              strategyId: true,
+              createdBy: true,
+              role: true,
+              day: true,
+              stepOrder: true,
+              assetName: true,
+              channel: true,
+              strategyAngle: true,
+              confidence: true,
+              preview: true,
+              subjectLine: true,
+              activationAssetId: true,
+              companyId: true,
+              companyResearchId: true,
+              researchReportId: true,
+              metadata: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+          stepResponses.push(this.mapStepDetail(createdStep));
+        }
+
+        return {
+          strategy: this.mapStrategyDetail(strategyRow),
+          steps: stepResponses,
+          activationAssets,
+        };
+      });
+
+      logger.info(`createStrategyWithLlm LIBRARY projectId=${projectId} strategyId=${bundle.strategy.id}`);
+      return bundle;
+    }
+
+    if (llm.mode === 'MULTI_TOUCH') {
+      outputTypeEnum = OutputType.OUTREACH_FRAMEWORK;
+      const cadenceLabel = llm.labels.cadence?.trim();
+      if (cadenceLabel === undefined || cadenceLabel.length === 0) {
+        throw Object.assign(new Error('Cadence is required for multi-touch'), { statusCode: 400 });
+      }
+      cadenceEnum = mapCadenceLabelToEnum(cadenceLabel);
+    } else {
+      outputTypeEnum = OutputType.SINGLE_TOUCHPOINT;
+    }
+
+    const strategyMetadata: JsonValue = JSON.parse(
+      JSON.stringify(
+        payload.metadata !== undefined && payload.metadata !== null
+          ? {
+              llmGeneration: { mode: llm.mode, labels: llm.labels },
+              manualMetadata: payload.metadata,
+            }
+          : { llmGeneration: { mode: llm.mode, labels: llm.labels } }
+      )
+    ) as JsonValue;
+
+    if (llm.mode === 'MULTI_TOUCH') {
+      const cadenceLabel = llm.labels.cadence?.trim() ?? '';
+      const sequence = await geminiService.generateMultiTouchSequence(
+        activation,
+        user,
+        {
+          objective: llm.labels.objective,
+          cadence: cadenceLabel,
+          tone: llm.labels.tone,
+          persona: llm.labels.persona,
+        },
+        {
+          userId,
+          projectId,
+          companyResearchId,
+          researchReportId,
+          companyId,
+        }
+      );
+
+      const bundle = await prisma.$transaction(async (tx) => {
+        await tx.strategy.updateMany({
+          where: {
+            projectId,
+            companyId,
+            angle,
+            objective: objectiveEnum,
+            outputType: outputTypeEnum,
+            isDeleted: false,
+          },
+          data: { isDeleted: true, deletedAt: new Date() },
+        });
+
+        const strategyRow = await tx.strategy.create({
+          data: {
+            projectId,
+            createdBy: userId,
+            name: payload.name,
+            angle,
+            objective: objectiveEnum,
+            outputType: outputTypeEnum,
+            cadence: cadenceEnum,
+            tone: toneEnum,
+            senderPersona: personaEnum,
+            companyId,
+            companyResearchId,
+            researchReportId,
+            metadata: toNullablePrismaJson(strategyMetadata),
+          },
+          select: {
+            id: true,
+            projectId: true,
+            createdBy: true,
+            name: true,
+            angle: true,
+            objective: true,
+            outputType: true,
+            cadence: true,
+            tone: true,
+            senderPersona: true,
+            pacingNotes: true,
+            companyId: true,
+            companyResearchId: true,
+            researchReportId: true,
+            metadata: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        const stepResponses: StrategyStepResponse[] = [];
+        for (let i = 0; i < sequence.length; i++) {
+          const step = sequence[i]!;
+          const createdStep = await tx.strategyStep.create({
+            data: {
+              strategyId: strategyRow.id,
+              createdBy: userId,
+              role: i === 0 ? 'Interrupt' : 'Reinforce',
+              day: i + 1,
+              stepOrder: i,
+              assetName: step.output_type,
+              channel: this.inferChannelFromOutputType(step.output_type),
+              strategyAngle: angle,
+              confidence: foundation.confidence,
+              preview: step.content,
+              subjectLine: step.subject_line ?? null,
+              companyId,
+              companyResearchId,
+              researchReportId,
+              metadata: toNullablePrismaJson(
+                JSON.parse(
+                  JSON.stringify({
+                    strategic_angle: step.strategic_angle,
+                    objective_fit: step.objective_fit,
+                    approach_guidance: step.approach_guidance,
+                  })
+                ) as JsonValue
+              ),
+            },
+            select: {
+              id: true,
+              strategyId: true,
+              createdBy: true,
+              role: true,
+              day: true,
+              stepOrder: true,
+              assetName: true,
+              channel: true,
+              strategyAngle: true,
+              confidence: true,
+              preview: true,
+              subjectLine: true,
+              activationAssetId: true,
+              companyId: true,
+              companyResearchId: true,
+              researchReportId: true,
+              metadata: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+          stepResponses.push(this.mapStepDetail(createdStep));
+        }
+
+        return {
+          strategy: this.mapStrategyDetail(strategyRow),
+          steps: stepResponses,
+          activationAssets: [] as ActivationAssetResponse[],
+        };
+      });
+
+      logger.info(`createStrategyWithLlm MULTI projectId=${projectId} strategyId=${bundle.strategy.id}`);
+      return bundle;
+    }
+
+    const singleType = llm.labels.singleOutputType?.trim();
+    if (singleType === undefined || singleType.length === 0) {
+      throw Object.assign(new Error('singleOutputType is required for single-touch'), { statusCode: 400 });
+    }
+
+    const generated = await geminiService.generateCampaignAssets(
+      activation,
+      user,
+      {
+        objective: llm.labels.objective,
+        type: singleType,
+        tone: llm.labels.tone,
+        persona: llm.labels.persona,
+      },
+      {
+        userId,
+        projectId,
+        companyResearchId,
+        researchReportId,
+        companyId,
+      },
+      3
+    );
+
+    const bundle = await prisma.$transaction(async (tx) => {
+      await tx.strategy.updateMany({
+        where: {
+          projectId,
+          companyId,
+          angle,
+          objective: objectiveEnum,
+          outputType: outputTypeEnum,
+          isDeleted: false,
+        },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+
+      const strategyRow = await tx.strategy.create({
+        data: {
+          projectId,
+          createdBy: userId,
+          name: payload.name,
+          angle,
+          objective: objectiveEnum,
+          outputType: outputTypeEnum,
+          cadence: null,
+          tone: toneEnum,
+          senderPersona: personaEnum,
+          companyId,
+          companyResearchId,
+          researchReportId,
+          metadata: toNullablePrismaJson(strategyMetadata),
+        },
+        select: {
+          id: true,
+          projectId: true,
+          createdBy: true,
+          name: true,
+          angle: true,
+          objective: true,
+          outputType: true,
+          cadence: true,
+          tone: true,
+          senderPersona: true,
+          pacingNotes: true,
+          companyId: true,
+          companyResearchId: true,
+          researchReportId: true,
+          metadata: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const activationAssets: ActivationAssetResponse[] = [];
+      const stepResponses: StrategyStepResponse[] = [];
+
+      for (let i = 0; i < generated.length; i++) {
+        const asset = generated[i]!;
+        const aaRow = await tx.activationAsset.create({
+          data: {
+            projectId,
+            createdBy: userId,
+            source: 'LLM single-touch generation',
+            angleUsed: angle,
+            insightClaim: foundation.trigger,
+            confidence: foundation.confidence,
+            objective: objectiveEnum,
+            outputType: OutputType.SINGLE_TOUCHPOINT,
+            outputPreview: asset.content,
+            subjectLine: asset.subject_line ?? null,
+            strategicAngle: asset.strategic_angle,
+            whyItFits: asset.objective_fit,
+            approachGuidance: asset.approach_guidance,
+            companyResearchId,
+            researchReportId,
+            companyId,
+          },
+          select: {
+            id: true,
+            projectId: true,
+            createdBy: true,
+            source: true,
+            angleUsed: true,
+            insightClaim: true,
+            confidence: true,
+            objective: true,
+            outputType: true,
+            outputPreview: true,
+            subjectLine: true,
+            strategicAngle: true,
+            whyItFits: true,
+            approachGuidance: true,
+            companyResearchId: true,
+            researchReportId: true,
+            companyId: true,
+            metadata: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+        activationAssets.push(this.mapActivationDetail(aaRow));
+
+        const createdStep = await tx.strategyStep.create({
+          data: {
+            strategyId: strategyRow.id,
+            createdBy: userId,
+            role: i === 0 ? 'Interrupt' : 'Reinforce',
+            day: i + 1,
+            stepOrder: i,
+            assetName: singleType,
+            channel: this.inferChannelFromOutputType(singleType),
+            strategyAngle: angle,
+            confidence: foundation.confidence,
+            preview: asset.content,
+            subjectLine: asset.subject_line ?? null,
+            companyId,
+            companyResearchId,
+            researchReportId,
+            activationAssetId: aaRow.id,
+            metadata: toNullablePrismaJson(
+              JSON.parse(
+                JSON.stringify({
+                  strategic_angle: asset.strategic_angle,
+                  objective_fit: asset.objective_fit,
+                  approach_guidance: asset.approach_guidance,
+                })
+              ) as JsonValue
+            ),
+          },
+          select: {
+            id: true,
+            strategyId: true,
+            createdBy: true,
+            role: true,
+            day: true,
+            stepOrder: true,
+            assetName: true,
+            channel: true,
+            strategyAngle: true,
+            confidence: true,
+            preview: true,
+            subjectLine: true,
+            activationAssetId: true,
+            companyId: true,
+            companyResearchId: true,
+            researchReportId: true,
+            metadata: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+        stepResponses.push(this.mapStepDetail(createdStep));
+      }
+
+      return {
+        strategy: this.mapStrategyDetail(strategyRow),
+        steps: stepResponses,
+        activationAssets,
+      };
+    });
+
+    logger.info(`createStrategyWithLlm SINGLE projectId=${projectId} strategyId=${bundle.strategy.id}`);
+    return bundle;
   }
 
   async getStrategy(userId: string, projectId: string, strategyId: string): Promise<StrategyResponse | null> {
