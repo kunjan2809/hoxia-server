@@ -243,6 +243,8 @@ model CompanyList {
   rowCount Int?   @map("row_count")
 
   headers         Json  @map("headers")
+  /// Parsed CSV / sheet snapshot: `{ version: 1, rows: Record<string,string>[] }` (headers also on `headers`).
+  importDataset   Json? @map("import_dataset")
   campaignContext Json? @map("campaign_context")
 
   metadata Json? @map("metadata")
