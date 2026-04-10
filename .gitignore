@@ -32,6 +32,11 @@ temp
 tmp
 
 # ========================
+# LOCAL USER UPLOADS (tone-of-voice, etc.)
+# ========================
+uploads/
+
+# ========================
 # PRISMA
 # ========================
 /src/generated/prisma

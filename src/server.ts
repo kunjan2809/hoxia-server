@@ -2,15 +2,22 @@
 // IMPORTS
 // ============================================================================
 
+// Environment (must run before other project modules read process.env)
+import 'dotenv/config';
+
 // Packages
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import type { CorsOptions } from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
 
 // Routes
+import adminRoutes from './modules/admin/admin.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
+import companyRoutes from './modules/companies/company.routes.js';
+import projectRoutes from './modules/projects/project.routes.js';
+import researchRoutes from './modules/research/research.routes.js';
+import strategyRoutes from './modules/strategies/strategy.routes.js';
 
 // Middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -21,12 +28,6 @@ import { ROUTES } from './utils/constants/routes.js';
 // Utils
 import { logger } from './utils/helpers/logger.js';
 import { sendNotFound, sendSuccess } from './utils/helpers/response.js';
-
-// ============================================================================
-// ENV
-// ============================================================================
-
-dotenv.config();
 
 // ============================================================================
 // APP
@@ -53,7 +54,7 @@ const corsOptions: CorsOptions = {
   origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token'],
   optionsSuccessStatus: 204,
 };
 
@@ -80,6 +81,11 @@ app.use((req, res, next) => {
 // ============================================================================
 
 app.use(ROUTES.AUTH.BASE, authRoutes);
+app.use(ROUTES.ADMIN.BASE, adminRoutes);
+app.use(ROUTES.PROJECTS.BASE, projectRoutes);
+app.use(ROUTES.PROJECTS.SCOPED_MOUNT, companyRoutes);
+app.use(ROUTES.PROJECTS.SCOPED_MOUNT, researchRoutes);
+app.use(ROUTES.PROJECTS.SCOPED_MOUNT, strategyRoutes);
 
 // ============================================================================
 // HEALTH

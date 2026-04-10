@@ -10,7 +10,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma.js';
 
 // Utils
-import { sendUnauthorized } from '../utils/helpers/response.js';
+import { sendForbidden, sendUnauthorized } from '../utils/helpers/response.js';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -61,7 +61,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     const user = await prisma.user.findFirst({
       where: { id: decoded.sub, isDeleted: false },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, isActive: true },
     });
 
     if (!user) {
@@ -69,9 +69,26 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    req.user = user;
+    if (!user.isActive) {
+      sendForbidden(res, 'Account is deactivated');
+      return;
+    }
+
+    req.user = { id: user.id, email: user.email, role: user.role };
     next();
   } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      sendUnauthorized(res, 'Token expired');
+      return;
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      sendUnauthorized(res, 'Invalid or expired token');
+      return;
+    }
+    if (error instanceof jwt.NotBeforeError) {
+      sendUnauthorized(res, 'Token not active yet');
+      return;
+    }
     next(error);
   }
 };
