@@ -21,6 +21,7 @@ import { createLogger } from '../../utils/helpers/logger.js';
 
 // Types
 import type { EmailVerificationType, UserRole } from '../../generated/prisma/enums.js';
+import type { UpdateProfileDtoType } from './dto/auth.dto.js';
 import type { AuthResponse, SafeUser, SessionInfo } from './types/auth.types.js';
 
 // ============================================================================
@@ -164,27 +165,35 @@ export class AuthService {
 
       await prisma.user.update({
         where: { id: existing.id },
-        data: { firstName: dto.firstName, lastName: dto.lastName },
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          // PHASE1: Treat repeat signup as complete without sending another verification email.
+          isEmailVerified: true,
+        },
       });
 
-      await this.sendSignupVerification(dto.email, existing.id);
-      return { message: 'Account created. Please verify your email.' };
+      // PHASE1: Post-signup verification email (magic link) disabled — re-enable with sendSignupVerification below.
+      // await this.sendSignupVerification(dto.email, existing.id);
+      return { message: 'Account created successfully.' };
     }
 
     const passwordHash = await bcrypt.hash(dto.password, bcryptSaltRounds);
 
-    const user = await prisma.user.create({
+    await prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
         firstName: dto.firstName,
         lastName: dto.lastName,
+        // PHASE1: Auto-verify so signup can complete without a follow-up email step.
+        isEmailVerified: true,
       },
-      select: { id: true },
     });
 
-    await this.sendSignupVerification(dto.email, user.id);
-    return { message: 'Account created. Please verify your email.' };
+    // PHASE1: Post-signup verification email (magic link) disabled — re-enable with sendSignupVerification below.
+    // await this.sendSignupVerification(dto.email, user.id);
+    return { message: 'Account created successfully.' };
   }
 
   async login(dto: { email: string; password: string }, sessionInfo: SessionInfo): Promise<AuthResponse | { message: string }> {
@@ -198,6 +207,7 @@ export class AuthService {
         lastName: true,
         avatarUrl: true,
         isEmailVerified: true,
+        isActive: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -209,26 +219,39 @@ export class AuthService {
       throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
     }
 
+    if (!user.isActive) {
+      throw Object.assign(new Error('Account is deactivated'), { statusCode: 403 });
+    }
+
     const passwordOk = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordOk) {
       throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
     }
 
-    if (!user.isEmailVerified) {
-      await this.sendSignupVerification(user.email, user.id);
-      return { message: 'Email not verified. Verification link resent.' };
-    }
+    // PHASE1: Login no longer blocked when email is unverified; magic-link gate removed for phase 1.
+    // if (!user.isEmailVerified) {
+    //   await this.sendSignupVerification(user.email, user.id);
+    //   return { message: 'Email not verified. Verification link resent.' };
+    // }
 
+    const lastLoginAt = new Date();
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        lastLoginAt,
+        // PHASE1: Mark verified on password login for legacy accounts created before verification was disabled.
+        ...(user.isEmailVerified ? {} : { isEmailVerified: true }),
+      },
     });
+
+    const { passwordHash: _passwordHash, ...userPublic } = user;
+    void _passwordHash;
 
     const refreshToken = await this.issueRefreshToken(user.id, sessionInfo);
     const accessToken = this.signAccessToken({ sub: user.id, email: user.email, role: user.role });
 
     return {
-      user: toSafeUser(user),
+      user: toSafeUser({ ...userPublic, isEmailVerified: true, lastLoginAt }),
       accessToken,
       refreshToken,
     };
@@ -248,46 +271,48 @@ export class AuthService {
       return { message: 'Email is already verified.' };
     }
 
-    await this.sendSignupVerification(email, user.id);
+    // PHASE1: Resend verification email disabled — restore private sendSignupVerification + call when re-enabling.
+    // await this.sendSignupVerification(email, user.id);
     return { message: 'Verification link sent.' };
   }
 
-  private async sendSignupVerification(email: string, userId: string): Promise<void> {
-    const rawToken = randomToken();
-    const tokenHash = sha256(rawToken);
-    const expiresAt = new Date(Date.now() + magicLinkExpiresInMinutes * 60 * 1000);
+  // PHASE1: Post-signup verification email (magic link) disabled — restore private sendSignupVerification + call when re-enabling.
+  // private async sendSignupVerification(email: string, userId: string): Promise<void> {
+  //   const rawToken = randomToken();
+  //   const tokenHash = sha256(rawToken);
+  //   const expiresAt = new Date(Date.now() + magicLinkExpiresInMinutes * 60 * 1000);
 
-    await prisma.emailVerificationToken.create({
-      data: {
-        userId,
-        tokenHash,
-        type: 'SIGNUP',
-        expiresAt,
-      },
-    });
+  //   await prisma.emailVerificationToken.create({
+  //     data: {
+  //       userId,
+  //       tokenHash,
+  //       type: 'SIGNUP',
+  //       expiresAt,
+  //     },
+  //   });
 
-    const backendUrl = process.env['BACKEND_URL'] || `http://localhost:${process.env['PORT'] || 3000}`;
-    const verifyUrl = `${backendUrl}/api/auth/magic-link/verify?token=${encodeURIComponent(rawToken)}`;
+  //   const backendUrl = process.env['BACKEND_URL'] || `http://localhost:${process.env['PORT'] || 3000}`;
+  //   const verifyUrl = `${backendUrl}/api/auth/magic-link/verify?token=${encodeURIComponent(rawToken)}`;
 
-    const frontendUrl = process.env['FRONTEND_URL'] || '';
-    const fallbackUrl = frontendUrl ? `${frontendUrl}/auth/magic-link?token=${encodeURIComponent(rawToken)}` : verifyUrl;
+  //   const frontendUrl = process.env['FRONTEND_URL'] || '';
+  //   const fallbackUrl = frontendUrl ? `${frontendUrl}/auth/magic-link?token=${encodeURIComponent(rawToken)}` : verifyUrl;
 
-    void mailService
-      .sendMagicLinkEmail({
-        to: { email },
-        magicLinkUrl: verifyUrl,
-        fallbackUrl,
-        expiresInMinutes: magicLinkExpiresInMinutes,
-      })
-      .then((result) => {
-        if (!result.success) {
-          logger.warn(`Verification email failed to send for ${email}`, result);
-        }
-      })
-      .catch((error) => {
-        logger.error(`Verification email crashed for ${email}`, error);
-      });
-  }
+  //   void mailService
+  //     .sendMagicLinkEmail({
+  //       to: { email },
+  //       magicLinkUrl: verifyUrl,
+  //       fallbackUrl,
+  //       expiresInMinutes: magicLinkExpiresInMinutes,
+  //     })
+  //     .then((result) => {
+  //       if (!result.success) {
+  //         logger.warn(`Verification email failed to send for ${email}`, result);
+  //       }
+  //     })
+  //     .catch((error) => {
+  //       logger.error(`Verification email crashed for ${email}`, error);
+  //     });
+  // }
 
   async requestMagicLink(email: string): Promise<{ message: string }> {
     const existingUser = await prisma.user.findFirst({
@@ -430,12 +455,17 @@ export class AuthService {
             createdAt: true,
             updatedAt: true,
             isDeleted: true,
+            isActive: true,
           },
         },
       },
     });
 
     if (!tokenRow || tokenRow.user.isDeleted) {
+      throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
+    }
+
+    if (!tokenRow.user.isActive) {
       throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
     }
 
@@ -467,5 +497,102 @@ export class AuthService {
       data: { isRevoked: true },
     });
   }
+
+  /**
+   * Loads the full safe profile for the authenticated user (GET /api/auth/me).
+   * Excludes password and other sensitive fields.
+   */
+  async getProfile(userId: string): Promise<SafeUser | null> {
+    const user = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    return toSafeUser(user);
+  }
+
+  /**
+   * Updates display name fields only (first and last name). Email and credentials are unchanged.
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDtoType): Promise<SafeUser> {
+    const updated = await prisma.user.update({
+      where: { id: userId, isDeleted: false },
+      data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        isEmailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return toSafeUser(updated);
+  }
 }
+
+// ============================================================================
+// PHASE1 — ARCHIVE: post-signup email verification (magic link)
+// ============================================================================
+// Restore as `private async sendSignupVerification(email: string, userId: string)` on AuthService
+// and uncomment all `// await this.sendSignupVerification(...)` call sites when re-enabling.
+/*
+  const rawToken = randomToken();
+  const tokenHash = sha256(rawToken);
+  const expiresAt = new Date(Date.now() + magicLinkExpiresInMinutes * 60 * 1000);
+
+  await prisma.emailVerificationToken.create({
+    data: {
+      userId,
+      tokenHash,
+      type: 'SIGNUP',
+      expiresAt,
+    },
+  });
+
+  const backendUrl = process.env['BACKEND_URL'] || `http://localhost:${process.env['PORT'] || 3000}`;
+  const verifyUrl = `${backendUrl}/api/auth/magic-link/verify?token=${encodeURIComponent(rawToken)}`;
+
+  const frontendUrl = process.env['FRONTEND_URL'] || '';
+  const fallbackUrl = frontendUrl ? `${frontendUrl}/auth/magic-link?token=${encodeURIComponent(rawToken)}` : verifyUrl;
+
+  void mailService
+    .sendMagicLinkEmail({
+      to: { email },
+      magicLinkUrl: verifyUrl,
+      fallbackUrl,
+      expiresInMinutes: magicLinkExpiresInMinutes,
+    })
+    .then((result) => {
+      if (!result.success) {
+        logger.warn(`Verification email failed to send for ${email}`, result);
+      }
+    })
+    .catch((error) => {
+      logger.error(`Verification email crashed for ${email}`, error);
+    });
+*/
 

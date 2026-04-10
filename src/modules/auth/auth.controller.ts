@@ -9,13 +9,13 @@ import type { NextFunction, Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 
 // DTO
-import { LoginDto, RefreshTokenDto, RegisterDto, RequestMagicLinkDto, ResendVerificationDto, VerifyMagicLinkQueryDto } from './dto/auth.dto.js';
+import { LoginDto, RefreshTokenDto, RegisterDto, RequestMagicLinkDto, ResendVerificationDto, UpdateProfileDto, VerifyMagicLinkQueryDto } from './dto/auth.dto.js';
 import type { VerifyMagicLinkQueryDtoType } from './dto/auth.dto.js';
 
 // Utils
 import { clearAuthCookies, COOKIE_NAMES, setAuthCookies } from '../../utils/helpers/cookie.js';
 import { createLogger } from '../../utils/helpers/logger.js';
-import { sendBadRequest, sendSuccess } from '../../utils/helpers/response.js';
+import { sendBadRequest, sendNotFound, sendSuccess } from '../../utils/helpers/response.js';
 import { validateRequest } from '../../utils/helpers/validate.js';
 
 // Types
@@ -61,8 +61,10 @@ export class AuthController {
   }
 
   /**
-   * Request magic link
-   * POST /api/auth/magic-link/request
+   * @route   POST /api/auth/magic-link/request
+   * @desc    Validates the email via RequestMagicLinkDto, then delegates to authService.requestMagicLink.
+   *          Returns a message-only success response describing the magic link flow outcome (no cookies set here).
+   * @access  Public
    */
   requestMagicLink = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -79,8 +81,10 @@ export class AuthController {
   };
 
   /**
-   * Register with email + password and send verification link
-   * POST /api/auth/register
+   * @route   POST /api/auth/register
+   * @desc    Validates registration fields via RegisterDto, then delegates to authService.register.
+   *          Returns a message-only success response (PHASE1: no verification email; account is usable immediately).
+   * @access  Public
    */
   register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -95,8 +99,11 @@ export class AuthController {
   };
 
   /**
-   * Login with email + password
-   * POST /api/auth/login
+   * @route   POST /api/auth/login
+   * @desc    Validates email and password via LoginDto, then delegates to authService.login with session info.
+   *          When tokens are issued (PHASE1: without requiring prior email verification), sets HTTP-only auth cookies and returns AuthResponse.
+   *          Otherwise returns a message-only body when an intermediate step is required.
+   * @access  Public
    */
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -119,8 +126,10 @@ export class AuthController {
   };
 
   /**
-   * Resend verification link for unverified accounts
-   * POST /api/auth/resend-verification
+   * @route   POST /api/auth/resend-verification
+   * @desc    Validates the email via ResendVerificationDto, then delegates to authService.resendVerification.
+   *          Returns a message-only success response for the verification email flow.
+   * @access  Public
    */
   resendVerification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -135,17 +144,17 @@ export class AuthController {
   };
 
   /**
-   * Verify magic link token
-   * GET /api/auth/magic-link/verify?token=...
+   * @route   GET /api/auth/magic-link/verify
+   * @desc    Validates the token query via VerifyMagicLinkQueryDto (with normalized query), then delegates to authService.verifyMagicLinkToken.
+   *          On success, sets HTTP-only auth cookies and returns AuthResponse with the user profile and tokens.
+   * @access  Public
    */
   verifyMagicLink = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const queryToken = req.query['token'];
-      const query: VerifyMagicLinkQueryDtoType = { token: typeof queryToken === 'string' ? queryToken : '' };
+      const normalizedQuery: VerifyMagicLinkQueryDtoType = { token: typeof queryToken === 'string' ? queryToken : '' };
 
-      req.query = query as unknown as Request['query'];
-
-      const dtoResult = await validateRequest(VerifyMagicLinkQueryDto, req, res, 'query');
+      const dtoResult = await validateRequest(VerifyMagicLinkQueryDto, req, res, 'query', normalizedQuery);
       if (!dtoResult.success) {
         return;
       }
@@ -163,8 +172,10 @@ export class AuthController {
   };
 
   /**
-   * Refresh access token
-   * POST /api/auth/refresh
+   * @route   POST /api/auth/refresh
+   * @desc    Validates RefreshTokenDto and resolves the refresh token from cookies or body, then delegates to authService.refreshAccessToken.
+   *          Returns updated tokens and sets HTTP-only auth cookies on success; responds with 400 when no refresh token is present.
+   * @access  Public
    */
   refreshToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -190,8 +201,10 @@ export class AuthController {
   };
 
   /**
-   * Get current authenticated user
-   * GET /api/auth/me
+   * @route   GET /api/auth/me
+   * @desc    Requires req.user from the JWT, then delegates to authService.getProfile for that user id.
+   *          Returns the full safe profile (including firstName, lastName, avatarUrl) or 404 when the user record is missing.
+   * @access  Protected
    */
   me = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -200,15 +213,48 @@ export class AuthController {
         return;
       }
 
-      sendSuccess(res, 'User retrieved successfully', { user: req.user });
+      const profile = await this.authService.getProfile(req.user.id);
+      if (!profile) {
+        sendNotFound(res, 'User not found');
+        return;
+      }
+
+      sendSuccess(res, 'User retrieved successfully', { user: profile });
     } catch (error) {
       next(error);
     }
   };
 
   /**
-   * Logout (revoke refresh token or all sessions)
-   * POST /api/auth/logout
+   * @route   PATCH /api/auth/me
+   * @desc    Requires req.user, validates UpdateProfileDto, then delegates to authService.updateProfile for first and last name only.
+   *          Returns the updated user payload; email, password, and role are not changed here (use dedicated auth flows).
+   * @access  Protected
+   */
+  patchMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        sendBadRequest(res, 'Not authenticated');
+        return;
+      }
+
+      const dtoResult = await validateRequest(UpdateProfileDto, req, res, 'body');
+      if (!dtoResult.success) {
+        return;
+      }
+
+      const profile = await this.authService.updateProfile(req.user.id, dtoResult.data);
+      sendSuccess(res, 'Profile updated successfully', { user: profile });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * @route   POST /api/auth/logout
+   * @desc    Requires req.user, resolves refresh token from cookies or body, then delegates to authService.logout to revoke the current or all sessions.
+   *          Clears auth cookies and returns a message indicating single-session versus all-sessions logout.
+   * @access  Protected
    */
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

@@ -80,3 +80,18 @@ export const RefreshTokenDto = z.object({
 
 export type RefreshTokenDtoType = z.infer<typeof RefreshTokenDto>;
 
+export const UpdateProfileDto = z.object({
+  firstName: z
+    .string()
+    .min(1, 'First name is required')
+    .max(120, 'First name must be at most 120 characters')
+    .transform((value) => value.trim()),
+  lastName: z
+    .string()
+    .min(1, 'Last name is required')
+    .max(120, 'Last name must be at most 120 characters')
+    .transform((value) => value.trim()),
+});
+
+export type UpdateProfileDtoType = z.infer<typeof UpdateProfileDto>;
+
