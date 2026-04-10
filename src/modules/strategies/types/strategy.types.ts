@@ -95,6 +95,8 @@ export interface ActivationAssetResponse extends ActivationAssetListItem {
   companyResearchId: string | null;
   researchReportId: string | null;
   companyId: string | null;
+  /** Resolved from linked Company when available (list/detail convenience). */
+  companyName?: string | null;
   angleUsed: StrategicAngle;
   insightClaim: string;
   confidence: string;
@@ -107,7 +109,7 @@ export interface ActivationAssetResponse extends ActivationAssetListItem {
 }
 
 export interface PaginatedActivationAssets {
-  items: ActivationAssetListItem[];
+  items: ActivationAssetResponse[];
   page: number;
   pageSize: number;
   totalCount: number;

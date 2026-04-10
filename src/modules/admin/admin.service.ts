@@ -931,6 +931,8 @@ export class AdminService {
         id: true,
         projectId: true,
         createdBy: true,
+        companyId: true,
+        companyResearchId: true,
         formalCompanyName: true,
         strategicSummary: true,
         growthSignals: true,
@@ -943,7 +945,16 @@ export class AdminService {
         updatedAt: true,
         project: { select: { name: true } },
         user: { select: { email: true } },
-        companyResearch: { select: { researchStatus: true } },
+        companyResearch: {
+          select: {
+            id: true,
+            researchStatus: true,
+            researchData: true,
+            sources: true,
+            originalData: true,
+            company: { select: { websiteUrl: true, companyName: true } },
+          },
+        },
       },
     });
 
@@ -952,6 +963,7 @@ export class AdminService {
     }
 
     const status = row.companyResearch?.researchStatus ?? null;
+    const cr = row.companyResearch;
 
     return {
       id: row.id,
@@ -970,6 +982,13 @@ export class AdminService {
       interpretation: row.interpretation,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      companyId: row.companyId,
+      companyResearchId: row.companyResearchId,
+      websiteUrl: cr?.company?.websiteUrl ?? null,
+      inputCompanyName: cr?.company?.companyName ?? null,
+      researchData: cr?.researchData ?? null,
+      sources: cr?.sources ?? null,
+      originalData: cr?.originalData ?? null,
     };
   }
 }

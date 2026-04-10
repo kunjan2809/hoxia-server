@@ -244,6 +244,17 @@ export class StrategyService {
     };
   }
 
+  private async companyNameForActivationAsset(projectId: string, companyId: string | null): Promise<{ companyName: string | null } | null> {
+    if (companyId === null || companyId === undefined) {
+      return null;
+    }
+    const c = await prisma.company.findFirst({
+      where: { id: companyId, projectId },
+      select: { companyName: true },
+    });
+    return c ? { companyName: c.companyName } : null;
+  }
+
   private mapActivationDetail(row: {
     id: string;
     projectId: string;
@@ -265,9 +276,13 @@ export class StrategyService {
     metadata: Prisma.JsonValue | null;
     createdAt: Date;
     updatedAt: Date;
+    company?: { companyName: string | null } | null;
   }): ActivationAssetResponse {
-    return {
-      ...this.mapActivationList(row),
+    const { company, ...listRow } = row;
+    const companyName =
+      company?.companyName !== undefined && company?.companyName !== null ? company.companyName.trim() : '';
+    const base: ActivationAssetResponse = {
+      ...this.mapActivationList(listRow),
       createdBy: row.createdBy,
       angleUsed: row.angleUsed,
       insightClaim: row.insightClaim,
@@ -282,6 +297,7 @@ export class StrategyService {
       companyId: row.companyId,
       metadata: row.metadata,
     };
+    return companyName.length > 0 ? { ...base, companyName } : base;
   }
 
   async listStrategies(
@@ -893,8 +909,63 @@ export class StrategyService {
         });
 
         const stepResponses: StrategyStepResponse[] = [];
+        const activationAssetResponses: ActivationAssetResponse[] = [];
+
         for (let i = 0; i < sequence.length; i++) {
           const step = sequence[i]!;
+          const touchMeta = {
+            touchpoint_output_type: step.output_type,
+            strategic_angle: step.strategic_angle,
+            objective_fit: step.objective_fit,
+            approach_guidance: step.approach_guidance,
+          } as JsonValue;
+
+          const createdAsset = await tx.activationAsset.create({
+            data: {
+              projectId,
+              createdBy: userId,
+              source: 'LLM multi-touch generation',
+              angleUsed: angle,
+              insightClaim: foundation.trigger,
+              confidence: foundation.confidence,
+              objective: objectiveEnum,
+              outputType: OutputType.SINGLE_TOUCHPOINT,
+              outputPreview: step.content,
+              subjectLine: step.subject_line ?? null,
+              strategicAngle: step.strategic_angle,
+              whyItFits: step.objective_fit,
+              approachGuidance: step.approach_guidance,
+              companyResearchId,
+              researchReportId,
+              companyId,
+              metadata: toNullablePrismaJson(touchMeta),
+            },
+            select: {
+              id: true,
+              projectId: true,
+              createdBy: true,
+              source: true,
+              angleUsed: true,
+              insightClaim: true,
+              confidence: true,
+              objective: true,
+              outputType: true,
+              outputPreview: true,
+              subjectLine: true,
+              strategicAngle: true,
+              whyItFits: true,
+              approachGuidance: true,
+              companyResearchId: true,
+              researchReportId: true,
+              companyId: true,
+              metadata: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+
+          activationAssetResponses.push(this.mapActivationDetail(createdAsset));
+
           const createdStep = await tx.strategyStep.create({
             data: {
               strategyId: strategyRow.id,
@@ -911,15 +982,8 @@ export class StrategyService {
               companyId,
               companyResearchId,
               researchReportId,
-              metadata: toNullablePrismaJson(
-                JSON.parse(
-                  JSON.stringify({
-                    strategic_angle: step.strategic_angle,
-                    objective_fit: step.objective_fit,
-                    approach_guidance: step.approach_guidance,
-                  })
-                ) as JsonValue
-              ),
+              activationAssetId: createdAsset.id,
+              metadata: toNullablePrismaJson(touchMeta),
             },
             select: {
               id: true,
@@ -949,7 +1013,7 @@ export class StrategyService {
         return {
           strategy: this.mapStrategyDetail(strategyRow),
           steps: stepResponses,
-          activationAssets: [] as ActivationAssetResponse[],
+          activationAssets: activationAssetResponses,
         };
       });
 
@@ -1646,6 +1710,29 @@ export class StrategyService {
       }
     })();
 
+    const activationListSelect = {
+      id: true,
+      projectId: true,
+      createdBy: true,
+      source: true,
+      angleUsed: true,
+      insightClaim: true,
+      confidence: true,
+      objective: true,
+      outputType: true,
+      outputPreview: true,
+      subjectLine: true,
+      strategicAngle: true,
+      whyItFits: true,
+      approachGuidance: true,
+      companyResearchId: true,
+      researchReportId: true,
+      companyId: true,
+      metadata: true,
+      createdAt: true,
+      updatedAt: true,
+    } as const;
+
     const [totalCount, rows] = await prisma.$transaction([
       prisma.activationAsset.count({ where }),
       prisma.activationAsset.findMany({
@@ -1653,22 +1740,32 @@ export class StrategyService {
         orderBy,
         skip,
         take: query.pageSize,
-        select: {
-          id: true,
-          projectId: true,
-          source: true,
-          objective: true,
-          outputType: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: activationListSelect,
       }),
     ]);
+
+    const uniqueCompanyIds = [...new Set(rows.map((r) => r.companyId).filter((id): id is string => Boolean(id)))];
+    const companyRows =
+      uniqueCompanyIds.length > 0
+        ? await prisma.company.findMany({
+            where: { id: { in: uniqueCompanyIds }, projectId },
+            select: { id: true, companyName: true },
+          })
+        : [];
+    const nameById = new Map(companyRows.map((c) => [c.id, c.companyName ?? null] as const));
 
     const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / query.pageSize);
 
     return {
-      items: rows.map((r) => this.mapActivationList(r)),
+      items: rows.map((r) =>
+        this.mapActivationDetail({
+          ...r,
+          company:
+            r.companyId !== null && r.companyId !== undefined
+              ? { companyName: nameById.get(r.companyId) ?? null }
+              : null,
+        })
+      ),
       page: query.page,
       pageSize: query.pageSize,
       totalCount,
@@ -1752,7 +1849,8 @@ export class StrategyService {
       },
     });
 
-    return this.mapActivationDetail(created);
+    const company = await this.companyNameForActivationAsset(projectId, created.companyId);
+    return this.mapActivationDetail({ ...created, company });
   }
 
   async getActivationAsset(
@@ -1788,7 +1886,11 @@ export class StrategyService {
       },
     });
 
-    return row ? this.mapActivationDetail(row) : null;
+    if (!row) {
+      return null;
+    }
+    const company = await this.companyNameForActivationAsset(projectId, row.companyId);
+    return this.mapActivationDetail({ ...row, company });
   }
 
   async updateActivationAsset(
@@ -1888,7 +1990,8 @@ export class StrategyService {
       },
     });
 
-    return this.mapActivationDetail(updated);
+    const company = await this.companyNameForActivationAsset(projectId, updated.companyId);
+    return this.mapActivationDetail({ ...updated, company });
   }
 
   async softDeleteActivationAsset(
