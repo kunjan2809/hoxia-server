@@ -182,4 +182,12 @@ export interface AdminResearchReportDetail {
   interpretation: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Hydration for the same deep-dive view as the product UI */
+  companyId: string | null;
+  companyResearchId: string | null;
+  websiteUrl: string | null;
+  inputCompanyName: string | null;
+  researchData: Prisma.JsonValue | null;
+  sources: Prisma.JsonValue | null;
+  originalData: Prisma.JsonValue | null;
 }
