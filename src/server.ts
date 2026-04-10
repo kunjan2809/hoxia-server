@@ -9,6 +9,7 @@ import 'dotenv/config';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import type { CorsOptions } from 'cors';
+import type { NextFunction, Request, Response } from 'express';
 import express from 'express';
 
 // Routes
@@ -67,7 +68,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
 
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
@@ -91,7 +92,7 @@ app.use(ROUTES.PROJECTS.SCOPED_MOUNT, strategyRoutes);
 // HEALTH
 // ============================================================================
 
-app.get(ROUTES.BASE, (_req, res) => {
+app.get(ROUTES.BASE, (_req: Request, res: Response) => {
   sendSuccess(res, 'API is running', {
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -99,7 +100,7 @@ app.get(ROUTES.BASE, (_req, res) => {
   });
 });
 
-app.get(ROUTES.HEALTH, (_req, res) => {
+app.get(ROUTES.HEALTH, (_req: Request, res: Response) => {
   sendSuccess(res, 'Server is healthy', {
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -111,7 +112,7 @@ app.get(ROUTES.HEALTH, (_req, res) => {
 // 404
 // ============================================================================
 
-app.use((_req, res) => {
+app.use((_req: Request, res: Response) => {
   sendNotFound(res, 'Route not found. Please check the API URL and Method.');
 });
 
