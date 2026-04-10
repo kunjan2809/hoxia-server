@@ -18,10 +18,13 @@ export interface CompanyListItem {
   rowCount: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Present on list endpoint for client-side filtering (e.g. list research imports). */
+  metadata?: Prisma.JsonValue | null;
 }
 
 export interface CompanyListResponse extends CompanyListItem {
   headers: Prisma.JsonValue;
+  importDataset: Prisma.JsonValue | null;
   campaignContext: Prisma.JsonValue | null;
   metadata: Prisma.JsonValue | null;
 }
@@ -53,7 +56,8 @@ export interface CompanyResponse extends CompanyListItemRow {
 }
 
 export interface PaginatedCompanies {
-  items: CompanyListItemRow[];
+  /** List rows include `payload` / `metadata` for batch CSV workflows. */
+  items: CompanyResponse[];
   page: number;
   pageSize: number;
   totalCount: number;

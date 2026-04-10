@@ -80,6 +80,7 @@ export class CompanyService {
     rowCount: number | null;
     createdAt: Date;
     updatedAt: Date;
+    metadata?: Prisma.JsonValue | null;
   }): CompanyListItem {
     return {
       id: row.id,
@@ -89,6 +90,7 @@ export class CompanyService {
       rowCount: row.rowCount,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      ...(row.metadata !== undefined ? { metadata: row.metadata } : {}),
     };
   }
 
@@ -99,6 +101,7 @@ export class CompanyService {
     name: string;
     rowCount: number | null;
     headers: Prisma.JsonValue;
+    importDataset: Prisma.JsonValue | null;
     campaignContext: Prisma.JsonValue | null;
     metadata: Prisma.JsonValue | null;
     createdAt: Date;
@@ -107,6 +110,7 @@ export class CompanyService {
     return {
       ...this.mapCompanyListItem(row),
       headers: row.headers,
+      importDataset: row.importDataset,
       campaignContext: row.campaignContext,
       metadata: row.metadata,
     };
@@ -221,6 +225,7 @@ export class CompanyService {
           createdBy: true,
           name: true,
           rowCount: true,
+          metadata: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -261,6 +266,9 @@ export class CompanyService {
     if (dto.metadata !== undefined) {
       createData.metadata = toNullablePrismaJson(dto.metadata);
     }
+    if (dto.importDataset !== undefined) {
+      createData.importDataset = toNullablePrismaJson(dto.importDataset);
+    }
 
     const created = await prisma.companyList.create({
       data: createData,
@@ -271,6 +279,7 @@ export class CompanyService {
         name: true,
         rowCount: true,
         headers: true,
+        importDataset: true,
         campaignContext: true,
         metadata: true,
         createdAt: true,
@@ -329,6 +338,7 @@ export class CompanyService {
         name: true,
         rowCount: true,
         headers: true,
+        importDataset: true,
         campaignContext: true,
         metadata: true,
         createdAt: true,
@@ -374,6 +384,7 @@ export class CompanyService {
         name: true,
         rowCount: true,
         headers: true,
+        importDataset: true,
         campaignContext: true,
         metadata: true,
         createdAt: true,
@@ -474,6 +485,7 @@ export class CompanyService {
         name: true,
         rowCount: true,
         headers: true,
+        importDataset: true,
         campaignContext: true,
         metadata: true,
         createdAt: true,
@@ -516,6 +528,9 @@ export class CompanyService {
     if (dto.metadata !== undefined) {
       data.metadata = toNullablePrismaJson(dto.metadata);
     }
+    if (dto.importDataset !== undefined) {
+      data.importDataset = toNullablePrismaJson(dto.importDataset);
+    }
 
     const updated = await prisma.companyList.update({
       where: { id: companyListId },
@@ -527,6 +542,7 @@ export class CompanyService {
         name: true,
         rowCount: true,
         headers: true,
+        importDataset: true,
         campaignContext: true,
         metadata: true,
         createdAt: true,
@@ -645,6 +661,8 @@ export class CompanyService {
           companyName: true,
           websiteUrl: true,
           linkedinUrl: true,
+          payload: true,
+          metadata: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -654,7 +672,7 @@ export class CompanyService {
     const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / query.pageSize);
 
     return {
-      items: rows.map((r) => this.mapCompanyRow(r)),
+      items: rows.map((r) => this.mapCompanyResponse(r)),
       page: query.page,
       pageSize: query.pageSize,
       totalCount,
