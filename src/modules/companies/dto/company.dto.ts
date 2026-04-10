@@ -130,6 +130,8 @@ export const CreateCompanyListDto = z.object({
     .nullable(),
   campaignContext: jsonValueSchema.optional().nullable(),
   metadata: jsonValueSchema.optional().nullable(),
+  /** Parsed CSV rows snapshot (headers stored separately on `headers`). */
+  importDataset: jsonValueSchema.optional().nullable(),
 });
 
 export type CreateCompanyListDtoType = z.infer<typeof CreateCompanyListDto>;
@@ -151,6 +153,7 @@ export const UpdateCompanyListDto = z
       .nullable(),
     campaignContext: jsonValueSchema.optional().nullable(),
     metadata: jsonValueSchema.optional().nullable(),
+    importDataset: jsonValueSchema.optional().nullable(),
   })
   .refine(
     (data) =>
@@ -158,7 +161,8 @@ export const UpdateCompanyListDto = z
       data.headers !== undefined ||
       data.rowCount !== undefined ||
       data.campaignContext !== undefined ||
-      data.metadata !== undefined,
+      data.metadata !== undefined ||
+      data.importDataset !== undefined,
     { message: 'At least one field must be provided for update' }
   );
 
