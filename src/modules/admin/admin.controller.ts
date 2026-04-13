@@ -22,6 +22,7 @@ import {
   ListUsersQueryDto,
   UpdateAdminProjectDto,
   UpdateAdminUserDto,
+  UpdateAdminUserVerificationDto,
 } from './dto/admin.dto.js';
 
 // Utils
@@ -32,6 +33,7 @@ import { validateRequest } from '../../utils/helpers/validate.js';
 import type {
   AdminProjectDetail,
   AdminResearchReportDetail,
+  AdminUserSummary,
   PaginatedAdminNestedResearchReports,
   PaginatedAdminProjectCompanies,
   PaginatedAdminProjectCompanyResearch,
@@ -99,6 +101,44 @@ export class AdminController {
 
       const user = await this.adminService.createUser(dtoResult.data);
       sendCreated(res, 'User created successfully', { user });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * @route   PATCH /api/admin/users/:userId/verification
+   * @desc    Validates verification status (approved or rejected only), ensures the target user exists
+   *          and is not soft-deleted, then updates from pending when allowed. Returns the updated admin user summary.
+   * @access  Admin
+   */
+  updateUserVerification = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userIdParam = req.params['userId'];
+      const userId = Array.isArray(userIdParam) ? userIdParam[0] : userIdParam;
+      if (!userId) {
+        sendBadRequest(res, 'User id is required');
+        return;
+      }
+
+      if (!req.user) {
+        sendBadRequest(res, 'Not authenticated');
+        return;
+      }
+
+      const dtoResult = await validateRequest(UpdateAdminUserVerificationDto, req, res, 'body');
+      if (!dtoResult.success) {
+        return;
+      }
+
+      const updatedUser: AdminUserSummary | null = await this.adminService.updateUserVerificationStatus(userId, dtoResult.data);
+
+      if (!updatedUser) {
+        sendNotFound(res, 'User not found');
+        return;
+      }
+
+      sendSuccess(res, 'User verification status updated successfully', { user: updatedUser });
     } catch (error) {
       next(error);
     }

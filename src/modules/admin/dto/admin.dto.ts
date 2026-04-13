@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { PAGINATION } from '../../../config/pagination.js';
 
 // Types
-import { ProjectStatus, UserRole } from '../../../generated/prisma/enums.js';
+import { ProjectStatus, UserRole, UserVerificationStatus } from '../../../generated/prisma/enums.js';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -96,6 +96,15 @@ export const UpdateAdminUserDto = z
   .refine((data) => Object.keys(data).length > 0, { message: 'At least one field is required' });
 
 export type UpdateAdminUserDtoType = z.infer<typeof UpdateAdminUserDto>;
+
+export const UpdateAdminUserVerificationDto = z.object({
+  verificationStatus: z.enum(
+    [UserVerificationStatus.SUCCESS, UserVerificationStatus.FAILED],
+    'Verification status must be success (approved) or failed (rejected)'
+  ),
+});
+
+export type UpdateAdminUserVerificationDtoType = z.infer<typeof UpdateAdminUserVerificationDto>;
 
 export const ListUserOptionsQueryDto = z.object({
   q: z

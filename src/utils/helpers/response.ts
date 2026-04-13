@@ -14,11 +14,12 @@ export interface ApiFieldError {
   message: string;
 }
 
-export interface ApiResponse<T = unknown> {
+export interface ApiResponse<T = undefined> {
   success: boolean;
   message: string;
   data?: T;
   errors?: ApiFieldError[];
+  code?: string;
 }
 
 // ============================================================================
@@ -39,11 +40,12 @@ export class ResponseHelper {
     return ResponseHelper.success(res, message, data, 201);
   }
 
-  static error(res: Response, message: string, statusCode: number = 500, errors?: ApiFieldError[]): Response {
+  static error(res: Response, message: string, statusCode: number = 500, errors?: ApiFieldError[], code?: string): Response {
     const response: ApiResponse = {
       success: false,
       message,
       ...(errors ? { errors } : {}),
+      ...(code !== undefined && code.length > 0 ? { code } : {}),
     };
     return res.status(statusCode).json(response);
   }

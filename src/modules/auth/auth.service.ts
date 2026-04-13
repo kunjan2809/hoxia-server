@@ -19,8 +19,11 @@ import { mailService } from '../mail/index.js';
 // Utils
 import { createLogger } from '../../utils/helpers/logger.js';
 
+// Constants
+import { USER_VERIFICATION_ERROR_CODES, USER_VERIFICATION_MESSAGES } from './constants/userVerification.constants.js';
+
 // Types
-import type { EmailVerificationType, UserRole } from '../../generated/prisma/enums.js';
+import type { EmailVerificationType, UserRole, UserVerificationStatus } from '../../generated/prisma/enums.js';
 import type { UpdateProfileDtoType } from './dto/auth.dto.js';
 import type { AuthResponse, SafeUser, SessionInfo } from './types/auth.types.js';
 
@@ -77,6 +80,7 @@ const toSafeUser = (user: {
   lastName: string | null;
   avatarUrl: string | null;
   isEmailVerified: boolean;
+  verificationStatus: UserVerificationStatus;
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -89,6 +93,7 @@ const toSafeUser = (user: {
     lastName: user.lastName,
     avatarUrl: user.avatarUrl,
     isEmailVerified: user.isEmailVerified,
+    verificationStatus: user.verificationStatus,
     lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
@@ -170,6 +175,7 @@ export class AuthService {
           lastName: dto.lastName,
           // PHASE1: Treat repeat signup as complete without sending another verification email.
           isEmailVerified: true,
+          verificationStatus: 'PENDING',
         },
       });
 
@@ -188,6 +194,7 @@ export class AuthService {
         lastName: dto.lastName,
         // PHASE1: Auto-verify so signup can complete without a follow-up email step.
         isEmailVerified: true,
+        verificationStatus: 'PENDING',
       },
     });
 
@@ -207,6 +214,7 @@ export class AuthService {
         lastName: true,
         avatarUrl: true,
         isEmailVerified: true,
+        verificationStatus: true,
         isActive: true,
         lastLoginAt: true,
         createdAt: true,
@@ -226,6 +234,21 @@ export class AuthService {
     const passwordOk = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordOk) {
       throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
+    }
+
+    if (user.role !== 'ADMIN') {
+      if (user.verificationStatus === 'PENDING') {
+        throw Object.assign(new Error(USER_VERIFICATION_MESSAGES.PENDING), {
+          statusCode: 403,
+          code: USER_VERIFICATION_ERROR_CODES.PENDING,
+        });
+      }
+      if (user.verificationStatus === 'FAILED') {
+        throw Object.assign(new Error(USER_VERIFICATION_MESSAGES.FAILED), {
+          statusCode: 403,
+          code: USER_VERIFICATION_ERROR_CODES.FAILED,
+        });
+      }
     }
 
     // PHASE1: Login no longer blocked when email is unverified; magic-link gate removed for phase 1.
@@ -251,7 +274,12 @@ export class AuthService {
     const accessToken = this.signAccessToken({ sub: user.id, email: user.email, role: user.role });
 
     return {
-      user: toSafeUser({ ...userPublic, isEmailVerified: true, lastLoginAt }),
+      user: toSafeUser({
+        ...userPublic,
+        isEmailVerified: true,
+        lastLoginAt,
+        verificationStatus: user.verificationStatus,
+      }),
       accessToken,
       refreshToken,
     };
@@ -327,6 +355,7 @@ export class AuthService {
           data: {
             email,
             passwordHash: await bcrypt.hash(randomToken(), bcryptSaltRounds),
+            verificationStatus: 'PENDING',
           },
           select: { id: true },
         })
@@ -393,6 +422,7 @@ export class AuthService {
             lastName: true,
             avatarUrl: true,
             isEmailVerified: true,
+            verificationStatus: true,
             lastLoginAt: true,
             createdAt: true,
             updatedAt: true,
@@ -404,6 +434,21 @@ export class AuthService {
 
     if (!tokenRow || tokenRow.user.isDeleted) {
       throw Object.assign(new Error('Invalid or expired token'), { statusCode: 400 });
+    }
+
+    if (tokenRow.user.role !== 'ADMIN') {
+      if (tokenRow.user.verificationStatus === 'PENDING') {
+        throw Object.assign(new Error(USER_VERIFICATION_MESSAGES.PENDING), {
+          statusCode: 403,
+          code: USER_VERIFICATION_ERROR_CODES.PENDING,
+        });
+      }
+      if (tokenRow.user.verificationStatus === 'FAILED') {
+        throw Object.assign(new Error(USER_VERIFICATION_MESSAGES.FAILED), {
+          statusCode: 403,
+          code: USER_VERIFICATION_ERROR_CODES.FAILED,
+        });
+      }
     }
 
     await prisma.$transaction([
@@ -427,11 +472,22 @@ export class AuthService {
       role: tokenRow.user.role,
     });
 
+    const nextIsEmailVerified =
+      tokenRow.type === ('SIGNUP' as EmailVerificationType) ? true : tokenRow.user.isEmailVerified;
+
     return {
       user: toSafeUser({
-        ...tokenRow.user,
-        isEmailVerified: tokenRow.type === ('SIGNUP' as EmailVerificationType) ? true : tokenRow.user.isEmailVerified,
+        id: tokenRow.user.id,
+        email: tokenRow.user.email,
+        role: tokenRow.user.role,
+        firstName: tokenRow.user.firstName,
+        lastName: tokenRow.user.lastName,
+        avatarUrl: tokenRow.user.avatarUrl,
+        isEmailVerified: nextIsEmailVerified,
+        verificationStatus: tokenRow.user.verificationStatus,
         lastLoginAt: new Date(),
+        createdAt: tokenRow.user.createdAt,
+        updatedAt: tokenRow.user.updatedAt,
       }),
       accessToken,
       refreshToken,
@@ -451,6 +507,7 @@ export class AuthService {
             lastName: true,
             avatarUrl: true,
             isEmailVerified: true,
+            verificationStatus: true,
             lastLoginAt: true,
             createdAt: true,
             updatedAt: true,
@@ -469,6 +526,21 @@ export class AuthService {
       throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
     }
 
+    if (tokenRow.user.role !== 'ADMIN') {
+      if (tokenRow.user.verificationStatus === 'PENDING') {
+        throw Object.assign(new Error(USER_VERIFICATION_MESSAGES.PENDING), {
+          statusCode: 403,
+          code: USER_VERIFICATION_ERROR_CODES.PENDING,
+        });
+      }
+      if (tokenRow.user.verificationStatus === 'FAILED') {
+        throw Object.assign(new Error(USER_VERIFICATION_MESSAGES.FAILED), {
+          statusCode: 403,
+          code: USER_VERIFICATION_ERROR_CODES.FAILED,
+        });
+      }
+    }
+
     const newRefreshToken = await this.rotateRefreshToken(refreshToken, sessionInfo);
     const accessToken = this.signAccessToken({
       sub: tokenRow.user.id,
@@ -476,8 +548,22 @@ export class AuthService {
       role: tokenRow.user.role,
     });
 
+    const refreshedUser = tokenRow.user;
+
     return {
-      user: toSafeUser(tokenRow.user),
+      user: toSafeUser({
+        id: refreshedUser.id,
+        email: refreshedUser.email,
+        role: refreshedUser.role,
+        firstName: refreshedUser.firstName,
+        lastName: refreshedUser.lastName,
+        avatarUrl: refreshedUser.avatarUrl,
+        isEmailVerified: refreshedUser.isEmailVerified,
+        verificationStatus: refreshedUser.verificationStatus,
+        lastLoginAt: refreshedUser.lastLoginAt,
+        createdAt: refreshedUser.createdAt,
+        updatedAt: refreshedUser.updatedAt,
+      }),
       accessToken,
       refreshToken: newRefreshToken,
     };
@@ -513,6 +599,7 @@ export class AuthService {
         lastName: true,
         avatarUrl: true,
         isEmailVerified: true,
+        verificationStatus: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
@@ -544,6 +631,7 @@ export class AuthService {
         lastName: true,
         avatarUrl: true,
         isEmailVerified: true,
+        verificationStatus: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,

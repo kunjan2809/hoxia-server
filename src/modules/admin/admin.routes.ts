@@ -29,6 +29,19 @@ router.get(ROUTES.ADMIN.USERS.LIST, authenticate, requireRole(['ADMIN']), adminC
 
 router.post(ROUTES.ADMIN.USERS.LIST, authenticate, requireRole(['ADMIN']), adminController.createUser);
 
+/**
+ * @route   PATCH /api/admin/users/:userId/verification
+ * @desc    Sets account verification to approved (success) or rejected (failed) for users that are
+ *          currently pending. Used by the admin users table; rejects revoke active refresh sessions.
+ * @access  Admin
+ */
+router.patch(
+    ROUTES.ADMIN.USERS.VERIFICATION,
+    authenticate,
+    requireRole(['ADMIN']),
+    adminController.updateUserVerification
+);
+
 router.patch(ROUTES.ADMIN.USERS.DETAIL, authenticate, requireRole(['ADMIN']), adminController.updateUser);
 
 router.delete(ROUTES.ADMIN.USERS.DETAIL, authenticate, requireRole(['ADMIN']), adminController.deleteUser);
