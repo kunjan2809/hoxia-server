@@ -24,6 +24,7 @@ export const ROUTES = {
     USERS: {
       OPTIONS: '/users/options',
       LIST: '/users',
+      VERIFICATION: '/users/:userId/verification',
       DETAIL: '/users/:userId',
     },
     PROJECTS: {

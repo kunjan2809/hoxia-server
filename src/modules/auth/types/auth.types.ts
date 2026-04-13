@@ -3,7 +3,7 @@
 // ============================================================================
 
 // Types
-import type { UserRole } from '../../../generated/prisma/enums.js';
+import type { UserRole, UserVerificationStatus } from '../../../generated/prisma/enums.js';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -22,6 +22,7 @@ export interface SafeUser {
   lastName?: string | null;
   avatarUrl?: string | null;
   isEmailVerified: boolean;
+  verificationStatus: UserVerificationStatus;
   lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;

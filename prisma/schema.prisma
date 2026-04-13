@@ -20,6 +20,12 @@ enum UserRole {
   ADMIN
 }
 
+enum UserVerificationStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
 enum EmailVerificationType {
   SIGNUP
   PASSWORD_RESET
@@ -125,6 +131,8 @@ model User {
 
   role UserRole @default(USER)
 
+  verificationStatus UserVerificationStatus @default(PENDING) @map("verification_status")
+
   isActive Boolean @default(true) @map("is_active")
 
   isEmailVerified Boolean   @default(false) @map("is_email_verified")
@@ -152,6 +160,7 @@ model User {
 
   @@index([isDeleted])
   @@index([isActive])
+  @@index([verificationStatus])
   @@map("users")
 }
 

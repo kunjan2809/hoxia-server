@@ -10,7 +10,7 @@ import { prisma } from '../../config/prisma.js';
 
 // Types
 import type { Prisma } from '../../generated/prisma/client.js';
-import type { UserRole } from '../../generated/prisma/enums.js';
+import type { UserRole, UserVerificationStatus } from '../../generated/prisma/enums.js';
 import type {
   CreateAdminProjectDtoType,
   CreateAdminUserDtoType,
@@ -24,6 +24,7 @@ import type {
   ListUsersQueryDtoType,
   UpdateAdminProjectDtoType,
   UpdateAdminUserDtoType,
+  UpdateAdminUserVerificationDtoType,
 } from './dto/admin.dto.js';
 import type {
   AdminCompanyResearchRow,
@@ -62,6 +63,7 @@ const toAdminUserSummary = (user: {
   lastName: string | null;
   role: UserRole;
   isActive: boolean;
+  verificationStatus: UserVerificationStatus;
   createdAt: Date;
   updatedAt: Date;
 }): AdminUserSummary => {
@@ -72,6 +74,7 @@ const toAdminUserSummary = (user: {
     lastName: user.lastName,
     role: user.role,
     isActive: user.isActive,
+    verificationStatus: user.verificationStatus,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };
@@ -154,6 +157,7 @@ export class AdminService {
           lastName: true,
           role: true,
           isActive: true,
+          verificationStatus: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -193,6 +197,7 @@ export class AdminService {
         role: dto.role,
         isEmailVerified: true,
         isActive: true,
+        verificationStatus: 'SUCCESS',
       },
       select: {
         id: true,
@@ -201,12 +206,55 @@ export class AdminService {
         lastName: true,
         role: true,
         isActive: true,
+        verificationStatus: true,
         createdAt: true,
         updatedAt: true,
       },
     });
 
     return toAdminUserSummary(created);
+  }
+
+  async updateUserVerificationStatus(
+    userId: string,
+    dto: UpdateAdminUserVerificationDtoType
+  ): Promise<AdminUserSummary | null> {
+    const existing = await prisma.user.findFirst({
+      where: { id: userId, isDeleted: false },
+      select: { id: true, verificationStatus: true },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.verificationStatus !== 'PENDING') {
+      throw Object.assign(new Error('Verification status can only be updated while the account is pending review'), {
+        statusCode: 409,
+      });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { verificationStatus: dto.verificationStatus },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        verificationStatus: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (dto.verificationStatus === 'FAILED') {
+      await this.revokeAllRefreshTokensForUser(userId);
+    }
+
+    return toAdminUserSummary(updated);
   }
 
   async updateUser(userId: string, dto: UpdateAdminUserDtoType): Promise<AdminUserSummary | null> {
@@ -254,6 +302,7 @@ export class AdminService {
         lastName: true,
         role: true,
         isActive: true,
+        verificationStatus: true,
         createdAt: true,
         updatedAt: true,
       },

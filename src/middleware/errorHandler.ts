@@ -18,6 +18,7 @@ import { Prisma } from '../generated/prisma/client.js';
 
 interface AppError extends Error {
   statusCode?: number;
+  code?: string;
   errors?: Array<{ field: string; message: string }>;
 }
 
@@ -75,7 +76,8 @@ export const errorHandler = (err: AppError, _req: Request, res: Response, _next:
 
   const statusCode = err.statusCode ?? 500;
   const message = err.message || 'Internal server error';
+  const errorCode = typeof err.code === 'string' && err.code.length > 0 ? err.code : undefined;
 
-  sendError(res, message, statusCode, err.errors);
+  sendError(res, message, statusCode, err.errors, errorCode);
 };
 

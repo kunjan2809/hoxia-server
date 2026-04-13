@@ -4,7 +4,7 @@
 
 // Types
 import type { Prisma } from '../../../generated/prisma/client.js';
-import type { ProjectStatus, ResearchRowStatus, UserRole } from '../../../generated/prisma/enums.js';
+import type { ProjectStatus, ResearchRowStatus, UserRole, UserVerificationStatus } from '../../../generated/prisma/enums.js';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -17,6 +17,7 @@ export interface AdminUserSummary {
   lastName: string | null;
   role: UserRole;
   isActive: boolean;
+  verificationStatus: UserVerificationStatus;
   createdAt: string;
   updatedAt: string;
 }
