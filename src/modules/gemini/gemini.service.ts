@@ -221,7 +221,7 @@ export class GeminiService {
           model: GEMINI_MODEL_NAME,
           contents: prompt,
           config: {
-            // tools: [{ googleSearch: {} }],
+            tools: [{ googleSearch: {} }],
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
