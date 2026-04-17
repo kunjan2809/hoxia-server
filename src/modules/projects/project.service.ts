@@ -36,6 +36,12 @@ export class ProjectService {
     status: ProjectListItem['status'];
     createdAt: Date;
     updatedAt: Date;
+    _count: {
+      companyLists: number;
+      researchReports: number;
+      strategies: number;
+      activationAssets: number;
+    };
   }): ProjectListItem {
     return {
       id: row.id,
@@ -44,6 +50,12 @@ export class ProjectService {
       status: row.status,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      relationCounts: {
+        companyLists: row._count.companyLists,
+        researchReports: row._count.researchReports,
+        strategies: row._count.strategies,
+        activationAssets: row._count.activationAssets,
+      },
     };
   }
 
@@ -119,6 +131,14 @@ export class ProjectService {
           status: true,
           createdAt: true,
           updatedAt: true,
+          _count: {
+            select: {
+              companyLists: { where: { isDeleted: false } },
+              researchReports: { where: { isDeleted: false } },
+              strategies: { where: { isDeleted: false } },
+              activationAssets: { where: { isDeleted: false } },
+            },
+          },
         },
       }),
     ]);

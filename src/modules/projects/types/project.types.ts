@@ -10,6 +10,13 @@ import type { Prisma } from '../../../generated/prisma/client.js';
 // TYPE DEFINITIONS
 // ============================================================================
 
+export interface ProjectListRelationCounts {
+  companyLists: number;
+  researchReports: number;
+  strategies: number;
+  activationAssets: number;
+}
+
 export interface ProjectListItem {
   id: string;
   userId: string;
@@ -17,6 +24,7 @@ export interface ProjectListItem {
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
+  relationCounts: ProjectListRelationCounts;
 }
 
 export interface ProjectResponse {

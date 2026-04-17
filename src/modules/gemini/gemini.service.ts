@@ -362,7 +362,9 @@ export class GeminiService {
   ): Promise<GeneratedActivationAsset[]> {
     const client = GeminiClient.getInstance();
     const { researchData, foundation, companyName, angle } = activation;
-    const isEmail = config.type.toLowerCase().includes('email');
+    const typeLower = config.type.toLowerCase();
+    const isEmail = typeLower.includes('email');
+    const isLinkedInShort = typeLower.includes('linkedin');
 
     logger.info(`Generating ${numVariants} campaign asset variants for: ${companyName}`);
 
@@ -407,7 +409,7 @@ export class GeminiService {
     
     Generate ${numVariants} variants. 
     For each variant, you MUST populate these fields with substantial detail:
-    1. content: A draft outreach text (concept). If "LinkedIn connection note", keep under 200 chars.
+    1. content: A draft outreach text (concept). ${isLinkedInShort ? 'Keep under 200 characters (LinkedIn-style limit).' : 'Use length appropriate to the output type.'}
     2. subject_line: ${isEmail ? 'Generate a subject line following the SUBJECT LINE RULES (Max 60 chars, front-loaded).' : 'Leave empty (not an email).'}
     3. strategic_angle: 2-3 sentences explaining the specific strategic leverage point for this draft.
     4. objective_fit: 2-3 sentences explaining why this specific idea effectively addresses the objective: "${config.objective}".
