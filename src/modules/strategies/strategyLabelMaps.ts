@@ -71,6 +71,11 @@ export const mapPersonaLabelToEnum = (label: string): SenderPersona => {
     'Account Executive': SenderPersona.PEER,
     'Sales Director': SenderPersona.EXECUTIVE,
     'Senior Commercial Lead': SenderPersona.PARTNER,
+    'Sales Development (SDR / BDR)': SenderPersona.PEER,
+    'Board-Level Executive': SenderPersona.EXECUTIVE,
+    'Subject-Matter Expert': SenderPersona.INTERNAL_CHAMPION,
+    Founder: SenderPersona.EXECUTIVE,
+    'Marketing Lead': SenderPersona.PEER,
   };
   const v = map[t];
   if (v === undefined) {
