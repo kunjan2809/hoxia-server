@@ -98,7 +98,7 @@ router.get(
 
 /**
  * @route   PATCH /api/projects/:projectId/strategies/:strategyId
- * @desc    Partial update; unique constraint on (projectId, companyId, angle, objective, outputType) may return 409.
+ * @desc    Partial update of strategy fields and FK links.
  * @access  Protected
  */
 router.patch(

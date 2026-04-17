@@ -573,6 +573,17 @@ export class StrategyService {
     const toneEnum = mapToneLabelToEnum(llm.labels.tone);
     const personaEnum = mapPersonaLabelToEnum(llm.labels.persona);
 
+    const strategyMetadata: JsonValue = JSON.parse(
+      JSON.stringify(
+        payload.metadata !== undefined && payload.metadata !== null
+          ? {
+              llmGeneration: { mode: llm.mode, labels: llm.labels },
+              manualMetadata: payload.metadata,
+            }
+          : { llmGeneration: { mode: llm.mode, labels: llm.labels } }
+      )
+    ) as JsonValue;
+
     let outputTypeEnum: OutputType;
     let cadenceEnum: Cadence | null = null;
 
@@ -628,18 +639,6 @@ export class StrategyService {
       }
 
       const bundle = await prisma.$transaction(async (tx) => {
-        await tx.strategy.updateMany({
-          where: {
-            projectId,
-            companyId,
-            angle,
-            objective: objectiveEnum,
-            outputType: outputTypeEnum,
-            isDeleted: false,
-          },
-          data: { isDeleted: true, deletedAt: new Date() },
-        });
-
         const strategyRow = await tx.strategy.create({
           data: {
             projectId,
@@ -827,17 +826,6 @@ export class StrategyService {
       outputTypeEnum = OutputType.SINGLE_TOUCHPOINT;
     }
 
-    const strategyMetadata: JsonValue = JSON.parse(
-      JSON.stringify(
-        payload.metadata !== undefined && payload.metadata !== null
-          ? {
-              llmGeneration: { mode: llm.mode, labels: llm.labels },
-              manualMetadata: payload.metadata,
-            }
-          : { llmGeneration: { mode: llm.mode, labels: llm.labels } }
-      )
-    ) as JsonValue;
-
     if (llm.mode === 'MULTI_TOUCH') {
       const cadenceLabel = llm.labels.cadence?.trim() ?? '';
       const sequence = await geminiService.generateMultiTouchSequence(
@@ -859,18 +847,6 @@ export class StrategyService {
       );
 
       const bundle = await prisma.$transaction(async (tx) => {
-        await tx.strategy.updateMany({
-          where: {
-            projectId,
-            companyId,
-            angle,
-            objective: objectiveEnum,
-            outputType: outputTypeEnum,
-            isDeleted: false,
-          },
-          data: { isDeleted: true, deletedAt: new Date() },
-        });
-
         const strategyRow = await tx.strategy.create({
           data: {
             projectId,
@@ -1046,18 +1022,6 @@ export class StrategyService {
     );
 
     const bundle = await prisma.$transaction(async (tx) => {
-      await tx.strategy.updateMany({
-        where: {
-          projectId,
-          companyId,
-          angle,
-          objective: objectiveEnum,
-          outputType: outputTypeEnum,
-          isDeleted: false,
-        },
-        data: { isDeleted: true, deletedAt: new Date() },
-      });
-
       const strategyRow = await tx.strategy.create({
         data: {
           projectId,

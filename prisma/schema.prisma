@@ -469,7 +469,6 @@ model Strategy {
   steps           StrategyStep[]
   llmApiCalls     LlmApiCall[]
 
-  @@unique([projectId, companyId, angle, objective, outputType])
   @@index([projectId])
   @@index([projectId, isDeleted])
   @@index([companyResearchId])
